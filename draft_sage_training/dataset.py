@@ -223,6 +223,7 @@ class DraftDataset(Dataset):
         self.patch_values = sort_patch_values(self.data["patch"].dropna().unique()) if "patch" in self.data.columns else []
         self.patch_to_index = {patch: index + 1 for index, patch in enumerate(self.patch_values)}
         self.unknown_patch_index = 0
+        self.num_patches = len(self.patch_values) + 1
 
         self.samples = self._preprocess_samples()
 

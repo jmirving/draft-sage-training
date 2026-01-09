@@ -21,6 +21,7 @@ Training pipelines and experiment tracking for DraftSage models.
 - Model artifact(s)
 - Metrics summary (accuracy/loss/top-k)
 - Training config metadata for reproducibility
+Default layout: `<output-dir>/<runId>/{model.pth,metrics.json,config.json}`
 
 ## Configuration (MVP targets)
 - Input path (processor output location)
