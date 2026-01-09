@@ -30,5 +30,10 @@ Training pipelines and experiment tracking for DraftSage models.
 - Epochs, batch size, learning rate
 - Patch window selection (rolling or explicit list)
 
+## Run (scaffold)
+```
+python scripts/train.py --input-dir /path/to/prodata --output-dir ./artifacts
+```
+
 ## Status
 Scaffold only. No training pipeline implemented yet.
