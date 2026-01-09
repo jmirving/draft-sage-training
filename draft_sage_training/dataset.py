@@ -9,8 +9,8 @@ import pandas as pd
 import torch
 from torch.utils.data import Dataset
 
-from draft_sage_training.utils.champ_enum import create_champ_enum
 from draft_sage_training.utils.champion_sanitizer import ChampionSanitizer
+from draft_sage_training.utils.champion_mapping import load_champion_mapping
 from draft_sage_training.utils.draft_order import DRAFT_ORDER
 
 
@@ -194,7 +194,7 @@ class DraftDataset(Dataset):
         teams_df: Optional[pd.DataFrame] = None,
         patch_window: Optional[int] = None,
         patches: Optional[Sequence[str]] = None,
-        champions_path: Optional[str] = None,
+        champion_mapping_path: Optional[str] = None,
     ):
         if teams_df is None:
             if input_dir is None:
@@ -202,7 +202,6 @@ class DraftDataset(Dataset):
             teams_df = load_processed_teams(input_dir)
 
         self.data = aggregate_training_data(teams_df, patch_window=patch_window, patches=patches)
-        self.champ_enum = create_champ_enum(champions_path)
         self.champion_sanitizer = ChampionSanitizer()
         self.champion2idx = {}
         self.idx2champion = {}
@@ -211,7 +210,12 @@ class DraftDataset(Dataset):
         self.champion2idx[self.missing_key] = 0
         self.idx2champion[0] = self.missing_key
 
-        real_champions = [name for name in self.champ_enum.__members__ if name != "MISSING"]
+        mapping_entries = load_champion_mapping(champion_mapping_path)
+        real_champions = [
+            entry.get("normalized_name")
+            for entry in mapping_entries
+            if entry.get("normalized_name")
+        ]
         for i, champ_name in enumerate(real_champions, start=1):
             sanitized_name = self.champion_sanitizer.sanitize(champ_name)
             self.champion2idx[sanitized_name] = i

@@ -128,6 +128,7 @@ def train(config: TrainingConfig) -> int:
         input_dir=config.input_dir,
         patch_window=config.patch_window,
         patches=config.patches,
+        champion_mapping_path=config.champion_mapping_path,
     )
     if len(dataset) == 0:
         logging.error("No training samples available.")

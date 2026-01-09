@@ -4,6 +4,7 @@ import argparse
 import logging
 
 from draft_sage_training.config import TrainingConfig, normalize_patches
+from draft_sage_training.utils.champion_mapping import DEFAULT_MAPPING_PATH
 from draft_sage_training.training import train
 
 
@@ -20,6 +21,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--output-dir",
         default="artifacts",
         help="Directory for training outputs (models/metrics/config).",
+    )
+    parser.add_argument(
+        "--champion-mapping-path",
+        default=DEFAULT_MAPPING_PATH,
+        help="Path to the DDragon champion mapping artifact JSON.",
     )
     parser.add_argument(
         "--train-split",
@@ -89,6 +95,7 @@ def parse_args(argv: list[str] | None = None) -> TrainingConfig:
     return TrainingConfig(
         input_dir=args.input_dir,
         output_dir=args.output_dir,
+        champion_mapping_path=args.champion_mapping_path,
         train_split=args.train_split,
         val_split=args.val_split,
         test_split=args.test_split,

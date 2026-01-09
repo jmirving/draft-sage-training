@@ -15,6 +15,8 @@ Training pipelines and experiment tracking for DraftSage models.
 ## Inputs
 - CSV outputs from `lol-pro-data-processor`:
   - `all`, `players`, `teams`
+- DDragon champion mapping artifact (`normalized_name,name,id,key`), default:
+  `data/ddragon/artifacts/champion-mapping/latest.json`.
 - Training must span multiple patches; `patch` is a required feature.
 
 ## Outputs (MVP)
@@ -33,7 +35,8 @@ Default layout: `<output-dir>/<runId>/{model.pth,metrics.json,config.json}`
 
 ## Run (scaffold)
 ```
-python scripts/train.py --input-dir /path/to/prodata --output-dir ./artifacts
+python scripts/train.py --input-dir /path/to/prodata --output-dir ./artifacts \
+  --champion-mapping-path /path/to/champion-mapping.json
 ```
 
 ## Status

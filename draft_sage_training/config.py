@@ -8,6 +8,7 @@ from typing import Iterable, Optional, Sequence
 class TrainingConfig:
     input_dir: str
     output_dir: str
+    champion_mapping_path: str
     train_split: float
     val_split: float
     test_split: float
