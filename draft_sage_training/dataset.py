@@ -68,10 +68,10 @@ def drop_incomplete_team_rows(dataframe: pd.DataFrame) -> pd.DataFrame:
                 lambda value: value.strip() if isinstance(value, str) else value
             )
         missing_bans_mask = bans_only.isna() | (bans_only == "")
-        all_missing_bans = missing_bans_mask.all(axis=1)
-        missing_ban_rows = team_mask & all_missing_bans
+        missing_any_ban = missing_bans_mask.any(axis=1)
+        missing_ban_rows = team_mask & missing_any_ban
         if missing_ban_rows.any():
-            logging.info("Dropping %d team rows with all bans missing.", int(missing_ban_rows.sum()))
+            logging.info("Dropping %d team rows with missing bans.", int(missing_ban_rows.sum()))
             rows_to_drop |= missing_ban_rows
 
     if rows_to_drop.any():
