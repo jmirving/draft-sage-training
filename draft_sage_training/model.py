@@ -22,7 +22,13 @@ class DraftMLP(nn.Module):
             nn.ReLU(),
             nn.Dropout(0.2),
         )
-        self.classifier = nn.Sequential(
+        self.ban_head = nn.Sequential(
+            nn.Linear(hidden_size, hidden_size // 2),
+            nn.ReLU(),
+            nn.Dropout(0.2),
+            nn.Linear(hidden_size // 2, output_size),
+        )
+        self.pick_head = nn.Sequential(
             nn.Linear(hidden_size, hidden_size // 2),
             nn.ReLU(),
             nn.Dropout(0.2),
@@ -32,6 +38,7 @@ class DraftMLP(nn.Module):
     def forward(self, features: Dict[str, torch.Tensor]) -> torch.Tensor:
         draft_sequence = features["draft_sequence"]
         patch_index = features["patch_index"]
+        action_type = features["action_type"]
 
         draft_embedded = self.champion_embedding(draft_sequence)
         draft_flat = draft_embedded.view(draft_embedded.size(0), -1)
@@ -39,4 +46,8 @@ class DraftMLP(nn.Module):
         combined = torch.cat([draft_flat, patch_embedded], dim=1)
 
         draft_encoded = self.draft_encoder(combined)
-        return self.classifier(draft_encoded)
+        ban_logits = self.ban_head(draft_encoded)
+        pick_logits = self.pick_head(draft_encoded)
+
+        action_mask = action_type.unsqueeze(1).bool()
+        return torch.where(action_mask, pick_logits, ban_logits)

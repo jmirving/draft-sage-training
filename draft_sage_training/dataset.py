@@ -363,11 +363,13 @@ class DraftDataset(Dataset):
         row = self.samples[idx]
         output_mask = self.get_output_mask(row["already_picked_or_banned"])
         target = row["target"] - 1 if row["target"] > 0 else 0
+        action_type = row.get("action_type", "ban")
         return {
             "draft_sequence": torch.tensor(row["draft_sequence"], dtype=torch.long),
             "target": torch.tensor(target, dtype=torch.long),
             "output_mask": torch.tensor(output_mask, dtype=torch.float32),
             "patch_index": torch.tensor(row["patch_index"], dtype=torch.long),
+            "action_type": torch.tensor(1 if action_type == "pick" else 0, dtype=torch.long),
         }
 
     def get_output_mask(self, already_picked_or_banned):
@@ -475,6 +477,7 @@ class DraftDataset(Dataset):
                         "target": champion_index,
                         "already_picked_or_banned": set(used_champions),
                         "patch_index": patch_index,
+                        "action_type": action_type,
                     }
                 )
 

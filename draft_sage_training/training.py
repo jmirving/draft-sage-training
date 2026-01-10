@@ -46,6 +46,7 @@ def run_epoch(model, data_loader, loss_function, optimizer=None, device="cpu", i
             features = {
                 "draft_sequence": batch["draft_sequence"].to(device),
                 "patch_index": batch["patch_index"].to(device),
+                "action_type": batch["action_type"].to(device),
             }
             outputs = model(features)
             masked_outputs = outputs.masked_fill(batch["output_mask"].to(device) == 0, -1e9)
@@ -69,6 +70,7 @@ def evaluate_model(model, data_loader, loss_function, device="cpu") -> Tuple[flo
             features = {
                 "draft_sequence": batch["draft_sequence"].to(device),
                 "patch_index": batch["patch_index"].to(device),
+                "action_type": batch["action_type"].to(device),
             }
             outputs = model(features)
             masked_outputs = outputs.masked_fill(batch["output_mask"].to(device) == 0, -1e9)
