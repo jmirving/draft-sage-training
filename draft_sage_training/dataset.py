@@ -469,14 +469,15 @@ class DraftDataset(Dataset):
                     )
                     continue
 
-                samples.append(
-                    {
-                        "draft_sequence": draft_sequence.copy(),
-                        "target": champion_index,
-                        "already_picked_or_banned": set(used_champions),
-                        "patch_index": patch_index,
-                    }
-                )
+                if action_type == "pick":
+                    samples.append(
+                        {
+                            "draft_sequence": draft_sequence.copy(),
+                            "target": champion_index,
+                            "already_picked_or_banned": set(used_champions),
+                            "patch_index": patch_index,
+                        }
+                    )
 
                 if sanitized_name:
                     used_champions.add(sanitized_name)
