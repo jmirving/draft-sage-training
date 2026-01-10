@@ -46,6 +46,8 @@ def drop_incomplete_team_rows(dataframe: pd.DataFrame) -> pd.DataFrame:
     if not team_mask.any():
         return dataframe
 
+    rows_to_drop = pd.Series(False, index=dataframe.index)
+
     picks_only = dataframe.loc[team_mask, PICK_COLUMNS].copy()
     for column in PICK_COLUMNS:
         picks_only[column] = picks_only[column].apply(
@@ -53,9 +55,26 @@ def drop_incomplete_team_rows(dataframe: pd.DataFrame) -> pd.DataFrame:
         )
     missing_picks_mask = picks_only.isna() | (picks_only == "")
     has_missing_pick = missing_picks_mask.any(axis=1)
-    rows_to_drop = team_mask & has_missing_pick
+    missing_pick_rows = team_mask & has_missing_pick
+    if missing_pick_rows.any():
+        logging.info("Dropping %d team rows with incomplete picks.", int(missing_pick_rows.sum()))
+        rows_to_drop |= missing_pick_rows
+
+    ban_columns = [column for column in BAN_COLUMNS if column in dataframe.columns]
+    if ban_columns:
+        bans_only = dataframe.loc[team_mask, ban_columns].copy()
+        for column in ban_columns:
+            bans_only[column] = bans_only[column].apply(
+                lambda value: value.strip() if isinstance(value, str) else value
+            )
+        missing_bans_mask = bans_only.isna() | (bans_only == "")
+        all_missing_bans = missing_bans_mask.all(axis=1)
+        missing_ban_rows = team_mask & all_missing_bans
+        if missing_ban_rows.any():
+            logging.info("Dropping %d team rows with all bans missing.", int(missing_ban_rows.sum()))
+            rows_to_drop |= missing_ban_rows
+
     if rows_to_drop.any():
-        logging.info("Dropping %d team rows with incomplete picks.", int(rows_to_drop.sum()))
         return dataframe.loc[~rows_to_drop].copy()
     return dataframe
 
