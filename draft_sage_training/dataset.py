@@ -15,6 +15,7 @@ from draft_sage_training.utils.draft_order import DRAFT_ORDER
 
 
 PICK_COLUMNS = ["pick1", "pick2", "pick3", "pick4", "pick5"]
+BAN_COLUMNS = ["ban1", "ban2", "ban3", "ban4", "ban5"]
 TEAM_IDS = {100, 200}
 
 
@@ -94,6 +95,71 @@ def filter_patches(
         return normalized[normalized["patch"].isin(window)].copy()
 
     return normalized
+
+
+def detect_fearless_series(
+    dataframe: pd.DataFrame,
+    sanitizer: ChampionSanitizer,
+) -> dict[str, bool]:
+    # Heuristic: fearless series should not repeat picks across games and should not
+    # ban champions that were picked earlier in the series.
+    if dataframe is None or dataframe.empty:
+        return {}
+
+    required = {"seriesid", "gameid"}
+    if not required.issubset(set(dataframe.columns)):
+        return {}
+
+    series_fearless: dict[str, bool] = {}
+    for seriesid, series_rows in dataframe.groupby("seriesid"):
+        game_ids = series_rows["gameid"].dropna().unique()
+        if len(game_ids) < 2:
+            series_fearless[seriesid] = False
+            continue
+
+        seen_picks: set[str] = set()
+        repeated_pick = False
+        banned_previous_pick = False
+
+        ordering_column = "game" if "game" in series_rows.columns else "gameid"
+        ordered_rows = series_rows.sort_values(ordering_column)
+
+        for _, game_rows in ordered_rows.groupby("gameid", sort=False):
+            game_picks: set[str] = set()
+            for pick_col in PICK_COLUMNS:
+                if pick_col not in game_rows.columns:
+                    continue
+                for value in game_rows[pick_col].tolist():
+                    if pd.isna(value) or value == "":
+                        continue
+                    sanitized = sanitizer.sanitize(value)
+                    if sanitized:
+                        game_picks.add(sanitized)
+
+            if seen_picks.intersection(game_picks):
+                repeated_pick = True
+                break
+
+            game_bans: set[str] = set()
+            for ban_col in BAN_COLUMNS:
+                if ban_col not in game_rows.columns:
+                    continue
+                for value in game_rows[ban_col].tolist():
+                    if pd.isna(value) or value == "":
+                        continue
+                    sanitized = sanitizer.sanitize(value)
+                    if sanitized:
+                        game_bans.add(sanitized)
+
+            if seen_picks.intersection(game_bans):
+                banned_previous_pick = True
+                break
+
+            seen_picks.update(game_picks)
+
+        series_fearless[seriesid] = not (repeated_pick or banned_previous_pick)
+
+    return series_fearless
 
 
 def infer_series_ids(dataframe: pd.DataFrame) -> pd.DataFrame:
@@ -224,6 +290,15 @@ class DraftDataset(Dataset):
         self.num_champions = len(self.champion2idx)
         self.draft_features = 20
 
+        self.series_fearless = detect_fearless_series(self.data, self.champion_sanitizer)
+        if self.series_fearless:
+            fearless_count = sum(1 for value in self.series_fearless.values() if value)
+            logging.info(
+                "Detected %d fearless series out of %d total series.",
+                fearless_count,
+                len(self.series_fearless),
+            )
+
         self.patch_values = sort_patch_values(self.data["patch"].dropna().unique()) if "patch" in self.data.columns else []
         self.patch_to_index = {patch: index + 1 for index, patch in enumerate(self.patch_values)}
         self.unknown_patch_index = 0
@@ -293,16 +368,23 @@ class DraftDataset(Dataset):
             patch_index = self._patch_index_for_rows(blue_row, red_row)
 
             fearless_picks = set()
-            previous_games = self.data[
-                (self.data["seriesid"] == seriesid) & (self.data["gameid"] < gameid)
-            ]
-            for _, prev_row in previous_games.iterrows():
-                for pick_number in range(1, 6):
-                    pick_col = f"pick{pick_number}"
-                    if pick_col in prev_row and not pd.isna(prev_row[pick_col]):
-                        sanitized_pick = self.champion_sanitizer.sanitize(prev_row[pick_col])
-                        if sanitized_pick:
-                            fearless_picks.add(sanitized_pick)
+            if self.series_fearless.get(seriesid, False):
+                game_number = blue_row.get("game") if "game" in blue_row else None
+                if game_number is None or pd.isna(game_number):
+                    previous_games = self.data[
+                        (self.data["seriesid"] == seriesid) & (self.data["gameid"] < gameid)
+                    ]
+                else:
+                    previous_games = self.data[
+                        (self.data["seriesid"] == seriesid) & (self.data["game"] < game_number)
+                    ]
+                for _, prev_row in previous_games.iterrows():
+                    for pick_number in range(1, 6):
+                        pick_col = f"pick{pick_number}"
+                        if pick_col in prev_row and not pd.isna(prev_row[pick_col]):
+                            sanitized_pick = self.champion_sanitizer.sanitize(prev_row[pick_col])
+                            if sanitized_pick:
+                                fearless_picks.add(sanitized_pick)
 
             used_champions = set(fearless_picks)
             draft_sequence = [0] * self.draft_features
