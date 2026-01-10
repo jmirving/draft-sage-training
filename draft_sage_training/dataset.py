@@ -211,6 +211,13 @@ def detect_fearless_series(
     return series_fearless
 
 
+def normalize_category(value: object) -> Optional[str]:
+    if value is None or pd.isna(value):
+        return None
+    text = str(value).strip()
+    return text if text else None
+
+
 def infer_series_ids(dataframe: pd.DataFrame) -> pd.DataFrame:
     if dataframe is None or dataframe.empty:
         return dataframe
@@ -340,6 +347,13 @@ class DraftDataset(Dataset):
         self.num_champions = len(self.champion2idx)
         self.draft_features = 20
 
+        self.league_values, self.league_to_index = self._build_category_index("league")
+        self.team_values, self.team_to_index = self._build_category_index("teamid")
+        self.unknown_league_index = 0
+        self.unknown_team_index = 0
+        self.num_leagues = len(self.league_to_index) + 1
+        self.num_teams = len(self.team_to_index) + 1
+
         self.series_fearless = detect_fearless_series(self.data, self.champion_sanitizer)
         if self.series_fearless:
             fearless_count = sum(1 for value in self.series_fearless.values() if value)
@@ -373,6 +387,8 @@ class DraftDataset(Dataset):
             "action_type": torch.tensor(1 if action_type == "pick" else 0, dtype=torch.long),
             "side": torch.tensor(1 if side == "red" else 0, dtype=torch.long),
             "event_index": torch.tensor(row.get("event_index", 0), dtype=torch.long),
+            "league_index": torch.tensor(row.get("league_index", self.unknown_league_index), dtype=torch.long),
+            "team_index": torch.tensor(row.get("team_index", self.unknown_team_index), dtype=torch.long),
         }
 
     def get_output_mask(self, already_picked_or_banned):
@@ -401,6 +417,30 @@ class DraftDataset(Dataset):
             return self.unknown_patch_index
         patch_str = str(patch_value)
         return self.patch_to_index.get(patch_str, self.unknown_patch_index)
+
+    def _build_category_index(self, column: str) -> tuple[list[str], dict[str, int]]:
+        if column not in self.data.columns:
+            return [], {}
+        values = []
+        for raw_value in self.data[column].dropna().unique():
+            normalized = normalize_category(raw_value)
+            if normalized:
+                values.append(normalized)
+        unique_values = sorted(set(values))
+        index = {value: idx + 1 for idx, value in enumerate(unique_values)}
+        return unique_values, index
+
+    def _league_index(self, value: object) -> int:
+        normalized = normalize_category(value)
+        if not normalized:
+            return self.unknown_league_index
+        return self.league_to_index.get(normalized, self.unknown_league_index)
+
+    def _team_index(self, value: object) -> int:
+        normalized = normalize_category(value)
+        if not normalized:
+            return self.unknown_team_index
+        return self.team_to_index.get(normalized, self.unknown_team_index)
 
     def _preprocess_samples(self):
         samples = []
@@ -483,6 +523,8 @@ class DraftDataset(Dataset):
                         "action_type": action_type,
                         "side": side,
                         "event_index": event_index,
+                        "league_index": self._league_index(row.get("league")),
+                        "team_index": self._team_index(row.get("teamid")),
                     }
                 )
 

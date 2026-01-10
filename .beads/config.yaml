@@ -1,0 +1,3 @@
+# Beads Configuration File
+# Use JSONL-only mode for this repo (no SQLite database).
+no-db: true

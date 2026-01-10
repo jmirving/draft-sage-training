@@ -50,6 +50,8 @@ def run_epoch(model, data_loader, loss_function, optimizer=None, device="cpu", i
                 "action_type": batch["action_type"].to(device),
                 "side": batch["side"].to(device),
                 "event_index": batch["event_index"].to(device),
+                "league_index": batch["league_index"].to(device),
+                "team_index": batch["team_index"].to(device),
             }
             outputs = model(features)
             masked_outputs = outputs.masked_fill(batch["output_mask"].to(device) == 0, -1e9)
@@ -76,6 +78,8 @@ def evaluate_model(model, data_loader, loss_function, device="cpu") -> Tuple[flo
                 "action_type": batch["action_type"].to(device),
                 "side": batch["side"].to(device),
                 "event_index": batch["event_index"].to(device),
+                "league_index": batch["league_index"].to(device),
+                "team_index": batch["team_index"].to(device),
             }
             outputs = model(features)
             masked_outputs = outputs.masked_fill(batch["output_mask"].to(device) == 0, -1e9)
@@ -160,6 +164,8 @@ def train(config: TrainingConfig) -> int:
             "num_actions": 2,
             "num_sides": 2,
             "num_events": len(DRAFT_ORDER),
+            "num_leagues": dataset.num_leagues,
+            "num_teams": dataset.num_teams,
         },
         hidden_size=256,
         output_size=dataset.num_champions - 1,
@@ -208,6 +214,17 @@ def train(config: TrainingConfig) -> int:
             "best_val_loss": best_val_loss,
             "test_loss": test_loss,
             "test_accuracy": test_accuracy,
+            "feature_set": [
+                "draft_sequence",
+                "patch",
+                "action_type",
+                "side",
+                "event_index",
+                "league",
+                "team",
+            ],
+            "num_leagues": dataset.num_leagues,
+            "num_teams": dataset.num_teams,
         },
     )
 
