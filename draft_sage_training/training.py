@@ -17,6 +17,7 @@ from torch.utils.data import DataLoader, Subset
 from draft_sage_training.config import TrainingConfig
 from draft_sage_training.dataset import DraftDataset
 from draft_sage_training.model import DraftMLP
+from draft_sage_training.utils.draft_order import DRAFT_ORDER
 
 
 def set_seed(seed: int) -> None:
@@ -46,6 +47,9 @@ def run_epoch(model, data_loader, loss_function, optimizer=None, device="cpu", i
             features = {
                 "draft_sequence": batch["draft_sequence"].to(device),
                 "patch_index": batch["patch_index"].to(device),
+                "action_type": batch["action_type"].to(device),
+                "side": batch["side"].to(device),
+                "event_index": batch["event_index"].to(device),
             }
             outputs = model(features)
             masked_outputs = outputs.masked_fill(batch["output_mask"].to(device) == 0, -1e9)
@@ -69,6 +73,9 @@ def evaluate_model(model, data_loader, loss_function, device="cpu") -> Tuple[flo
             features = {
                 "draft_sequence": batch["draft_sequence"].to(device),
                 "patch_index": batch["patch_index"].to(device),
+                "action_type": batch["action_type"].to(device),
+                "side": batch["side"].to(device),
+                "event_index": batch["event_index"].to(device),
             }
             outputs = model(features)
             masked_outputs = outputs.masked_fill(batch["output_mask"].to(device) == 0, -1e9)
@@ -150,6 +157,9 @@ def train(config: TrainingConfig) -> int:
             "num_champions": dataset.num_champions,
             "draft_sequence": dataset.draft_features,
             "num_patches": dataset.num_patches,
+            "num_actions": 2,
+            "num_sides": 2,
+            "num_events": len(DRAFT_ORDER),
         },
         hidden_size=256,
         output_size=dataset.num_champions - 1,
