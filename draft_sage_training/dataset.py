@@ -79,6 +79,36 @@ def drop_incomplete_team_rows(dataframe: pd.DataFrame) -> pd.DataFrame:
     return dataframe
 
 
+def drop_incomplete_games(dataframe: pd.DataFrame) -> pd.DataFrame:
+    if dataframe is None or dataframe.empty:
+        return dataframe
+
+    if "gameid" not in dataframe.columns or "side" not in dataframe.columns:
+        return dataframe
+
+    team_df = dataframe
+    if "participantid" in dataframe.columns:
+        team_mask = dataframe["participantid"].isin(list(TEAM_IDS))
+        if team_mask.any():
+            team_df = dataframe.loc[team_mask].copy()
+
+    valid_game_ids = []
+    for gameid, rows in team_df.groupby("gameid"):
+        if len(rows) != 2:
+            continue
+        sides = {str(value).lower() for value in rows["side"] if pd.notna(value)}
+        if sides == {"blue", "red"}:
+            valid_game_ids.append(gameid)
+
+    total_games = team_df["gameid"].nunique()
+    kept_games = len(valid_game_ids)
+    dropped_games = total_games - kept_games
+    if dropped_games > 0:
+        logging.info("Dropping %d games without complete blue/red team rows.", dropped_games)
+
+    return dataframe[dataframe["gameid"].isin(valid_game_ids)].copy()
+
+
 def sort_patch_values(patches: Iterable[str]) -> list[str]:
     patches_list = [str(patch) for patch in patches if patch]
     if not patches_list:
@@ -263,6 +293,7 @@ def aggregate_training_data(
         dataframe = dataframe[dataframe["participantid"].isin(list(TEAM_IDS))].copy()
 
     dataframe = drop_incomplete_team_rows(dataframe)
+    dataframe = drop_incomplete_games(dataframe)
     dataframe = filter_patches(dataframe, patch_window=patch_window, patches=patches)
     dataframe = infer_series_ids(dataframe)
 
