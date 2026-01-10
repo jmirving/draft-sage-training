@@ -395,13 +395,25 @@ class DraftDataset(Dataset):
                 column_name = f"{column_prefix}{action_number}"
                 champion_name = row.get(column_name)
                 champion_index = self._normalize_champion_id(champion_name)
-
-                if champion_index == 0 and column_prefix == "pick":
+                if champion_index == 0:
                     logging.warning(
-                        "Missing champion in picks for %s %s %s in series %s game %s; skipping sample",
+                        "Missing or unknown champion for %s %s %s in series %s game %s; skipping sample",
                         side,
                         action_type,
                         action_number,
+                        seriesid,
+                        gameid,
+                    )
+                    continue
+
+                sanitized_name = self.champion_sanitizer.sanitize(champion_name)
+                if sanitized_name in used_champions:
+                    logging.warning(
+                        "Duplicate %s %s %s (%s) in series %s game %s; skipping sample",
+                        side,
+                        action_type,
+                        action_number,
+                        sanitized_name,
                         seriesid,
                         gameid,
                     )
@@ -416,10 +428,8 @@ class DraftDataset(Dataset):
                     }
                 )
 
-                if pd.notna(champion_name):
-                    sanitized_name = self.champion_sanitizer.sanitize(champion_name)
-                    if sanitized_name:
-                        used_champions.add(sanitized_name)
+                if sanitized_name:
+                    used_champions.add(sanitized_name)
 
                 draft_sequence[event_index] = champion_index
 
