@@ -39,5 +39,14 @@ python scripts/train.py --input-dir /path/to/prodata --output-dir ./artifacts \
   --champion-mapping-path /path/to/champion-mapping.json
 ```
 
+## Experiment index helper
+After a run writes its `summary.json`, update the shared index:
+
+```
+python scripts/update_experiment_index.py \
+  --output-dir /path/to/output \
+  --summary-path /path/to/output/<runId>/summary.json
+```
+
 ## Status
 Scaffold only. No training pipeline implemented yet.
