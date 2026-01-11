@@ -18,6 +18,7 @@ from torch.utils.data import DataLoader, Subset
 from draft_sage_training.config import TrainingConfig
 from draft_sage_training.dataset import DraftDataset
 from draft_sage_training.model import DraftMLP
+from draft_sage_training.utils.draft_order import DRAFT_ORDER
 
 
 def set_seed(seed: int) -> None:
@@ -47,6 +48,11 @@ def run_epoch(model, data_loader, loss_function, optimizer=None, device="cpu", i
             features = {
                 "draft_sequence": batch["draft_sequence"].to(device),
                 "patch_index": batch["patch_index"].to(device),
+                "action_type": batch["action_type"].to(device),
+                "side": batch["side"].to(device),
+                "event_index": batch["event_index"].to(device),
+                "league_index": batch["league_index"].to(device),
+                "team_index": batch["team_index"].to(device),
             }
             if "champion_priors" in batch:
                 features["champion_priors"] = batch["champion_priors"].to(device)
@@ -72,6 +78,11 @@ def evaluate_model(model, data_loader, loss_function, device="cpu") -> Tuple[flo
             features = {
                 "draft_sequence": batch["draft_sequence"].to(device),
                 "patch_index": batch["patch_index"].to(device),
+                "action_type": batch["action_type"].to(device),
+                "side": batch["side"].to(device),
+                "event_index": batch["event_index"].to(device),
+                "league_index": batch["league_index"].to(device),
+                "team_index": batch["team_index"].to(device),
             }
             if "champion_priors" in batch:
                 features["champion_priors"] = batch["champion_priors"].to(device)
@@ -213,6 +224,11 @@ def train(config: TrainingConfig) -> int:
             "num_champions": dataset.num_champions,
             "draft_sequence": dataset.draft_features,
             "num_patches": dataset.num_patches,
+            "num_actions": 2,
+            "num_sides": 2,
+            "num_events": len(DRAFT_ORDER),
+            "num_leagues": dataset.num_leagues,
+            "num_teams": dataset.num_teams,
         },
         hidden_size=256,
         output_size=dataset.num_champions - 1,
@@ -253,6 +269,17 @@ def train(config: TrainingConfig) -> int:
     run_dir.mkdir(parents=True, exist_ok=True)
     torch.save(best_model_state, model_path)
     write_json(config_path, asdict(config))
+    feature_set = [
+        "draft_sequence",
+        "patch",
+        "action_type",
+        "side",
+        "event_index",
+        "league",
+        "team",
+    ]
+    if config.champion_priors_dir:
+        feature_set.append("champion_priors")
     metrics_payload = {
         "train_samples": len(train_dataset),
         "val_samples": len(val_dataset),
@@ -260,6 +287,9 @@ def train(config: TrainingConfig) -> int:
         "best_val_loss": best_val_loss,
         "test_loss": test_loss,
         "test_accuracy": test_accuracy,
+        "feature_set": feature_set,
+        "num_leagues": dataset.num_leagues,
+        "num_teams": dataset.num_teams,
     }
     write_json(metrics_path, metrics_payload)
 

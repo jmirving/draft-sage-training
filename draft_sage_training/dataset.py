@@ -212,6 +212,13 @@ def detect_fearless_series(
     return series_fearless
 
 
+def normalize_category(value: object) -> Optional[str]:
+    if value is None or pd.isna(value):
+        return None
+    text = str(value).strip()
+    return text if text else None
+
+
 def infer_series_ids(dataframe: pd.DataFrame) -> pd.DataFrame:
     if dataframe is None or dataframe.empty:
         return dataframe
@@ -343,6 +350,13 @@ class DraftDataset(Dataset):
         self.num_champions = len(self.champion2idx)
         self.draft_features = 20
 
+        self.league_values, self.league_to_index = self._build_category_index("league")
+        self.team_values, self.team_to_index = self._build_category_index("teamid")
+        self.unknown_league_index = 0
+        self.unknown_team_index = 0
+        self.num_leagues = len(self.league_to_index) + 1
+        self.num_teams = len(self.team_to_index) + 1
+
         self.champion_priors_strength = champion_priors_strength
         self.champion_priors_by_patch: Optional[dict[str, torch.Tensor]] = None
         self.default_champion_priors = torch.zeros(self.num_champions - 1, dtype=torch.float32)
@@ -372,11 +386,18 @@ class DraftDataset(Dataset):
         row = self.samples[idx]
         output_mask = self.get_output_mask(row["already_picked_or_banned"])
         target = row["target"] - 1 if row["target"] > 0 else 0
+        action_type = row.get("action_type", "ban")
+        side = row.get("side", "blue")
         payload = {
             "draft_sequence": torch.tensor(row["draft_sequence"], dtype=torch.long),
             "target": torch.tensor(target, dtype=torch.long),
             "output_mask": torch.tensor(output_mask, dtype=torch.float32),
             "patch_index": torch.tensor(row["patch_index"], dtype=torch.long),
+            "action_type": torch.tensor(1 if action_type == "pick" else 0, dtype=torch.long),
+            "side": torch.tensor(1 if side == "red" else 0, dtype=torch.long),
+            "event_index": torch.tensor(row.get("event_index", 0), dtype=torch.long),
+            "league_index": torch.tensor(row.get("league_index", self.unknown_league_index), dtype=torch.long),
+            "team_index": torch.tensor(row.get("team_index", self.unknown_team_index), dtype=torch.long),
         }
         if self.champion_priors_by_patch is not None:
             patch_value = row.get("patch")
@@ -419,6 +440,30 @@ class DraftDataset(Dataset):
             return None
         patch_str = str(patch_value).strip()
         return patch_str or None
+
+    def _build_category_index(self, column: str) -> tuple[list[str], dict[str, int]]:
+        if column not in self.data.columns:
+            return [], {}
+        values = []
+        for raw_value in self.data[column].dropna().unique():
+            normalized = normalize_category(raw_value)
+            if normalized:
+                values.append(normalized)
+        unique_values = sorted(set(values))
+        index = {value: idx + 1 for idx, value in enumerate(unique_values)}
+        return unique_values, index
+
+    def _league_index(self, value: object) -> int:
+        normalized = normalize_category(value)
+        if not normalized:
+            return self.unknown_league_index
+        return self.league_to_index.get(normalized, self.unknown_league_index)
+
+    def _team_index(self, value: object) -> int:
+        normalized = normalize_category(value)
+        if not normalized:
+            return self.unknown_team_index
+        return self.team_to_index.get(normalized, self.unknown_team_index)
 
     def _load_champion_priors(self, priors_dir: str) -> dict[str, torch.Tensor]:
         priors_path = Path(priors_dir)
@@ -550,6 +595,11 @@ class DraftDataset(Dataset):
                         "already_picked_or_banned": set(used_champions),
                         "patch_index": patch_index,
                         "patch": patch_value,
+                        "action_type": action_type,
+                        "side": side,
+                        "event_index": event_index,
+                        "league_index": self._league_index(row.get("league")),
+                        "team_index": self._team_index(row.get("teamid")),
                     }
                 )
 
