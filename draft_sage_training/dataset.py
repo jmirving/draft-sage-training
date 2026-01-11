@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 from pathlib import Path
 from typing import Iterable, Optional, Sequence
@@ -311,6 +312,8 @@ class DraftDataset(Dataset):
         patch_window: Optional[int] = None,
         patches: Optional[Sequence[str]] = None,
         champion_mapping_path: Optional[str] = None,
+        champion_priors_dir: Optional[str] = None,
+        champion_priors_strength: float = 1.0,
     ):
         if teams_df is None:
             if input_dir is None:
@@ -340,6 +343,12 @@ class DraftDataset(Dataset):
         self.num_champions = len(self.champion2idx)
         self.draft_features = 20
 
+        self.champion_priors_strength = champion_priors_strength
+        self.champion_priors_by_patch: Optional[dict[str, torch.Tensor]] = None
+        self.default_champion_priors = torch.zeros(self.num_champions - 1, dtype=torch.float32)
+        if champion_priors_dir:
+            self.champion_priors_by_patch = self._load_champion_priors(champion_priors_dir)
+
         self.series_fearless = detect_fearless_series(self.data, self.champion_sanitizer)
         if self.series_fearless:
             fearless_count = sum(1 for value in self.series_fearless.values() if value)
@@ -363,12 +372,17 @@ class DraftDataset(Dataset):
         row = self.samples[idx]
         output_mask = self.get_output_mask(row["already_picked_or_banned"])
         target = row["target"] - 1 if row["target"] > 0 else 0
-        return {
+        payload = {
             "draft_sequence": torch.tensor(row["draft_sequence"], dtype=torch.long),
             "target": torch.tensor(target, dtype=torch.long),
             "output_mask": torch.tensor(output_mask, dtype=torch.float32),
             "patch_index": torch.tensor(row["patch_index"], dtype=torch.long),
         }
+        if self.champion_priors_by_patch is not None:
+            patch_value = row.get("patch")
+            priors = self.champion_priors_by_patch.get(patch_value, self.default_champion_priors)
+            payload["champion_priors"] = priors
+        return payload
 
     def get_output_mask(self, already_picked_or_banned):
         mask = np.ones(self.num_champions - 1, dtype=np.float32)
@@ -397,6 +411,65 @@ class DraftDataset(Dataset):
         patch_str = str(patch_value)
         return self.patch_to_index.get(patch_str, self.unknown_patch_index)
 
+    def _patch_value_for_rows(self, blue_row: pd.Series, red_row: pd.Series) -> str | None:
+        patch_value = blue_row.get("patch") if blue_row is not None else None
+        if patch_value is None or pd.isna(patch_value):
+            patch_value = red_row.get("patch") if red_row is not None else None
+        if patch_value is None or pd.isna(patch_value):
+            return None
+        patch_str = str(patch_value).strip()
+        return patch_str or None
+
+    def _load_champion_priors(self, priors_dir: str) -> dict[str, torch.Tensor]:
+        priors_path = Path(priors_dir)
+        if not priors_path.exists():
+            raise FileNotFoundError(f"Champion priors directory not found: {priors_path}")
+
+        weight_files = sorted(priors_path.glob("*.json"))
+        if not weight_files:
+            raise FileNotFoundError(f"No champion priors JSON files found in {priors_path}")
+
+        priors_by_patch: dict[str, torch.Tensor] = {}
+        for weight_file in weight_files:
+            with weight_file.open(encoding="utf-8") as handle:
+                payload = json.load(handle)
+
+            weight_type = payload.get("weight_type")
+            if weight_type and weight_type != "champion-priors":
+                raise ValueError(f"Unexpected weight_type in {weight_file}: {weight_type}")
+
+            patch_value = payload.get("patch") or weight_file.stem
+            patch_key = str(patch_value)
+            weights = payload.get("weights")
+            if not isinstance(weights, dict):
+                raise ValueError(f"Invalid weights payload in {weight_file}")
+
+            vector = np.zeros(self.num_champions - 1, dtype=np.float32)
+            for name, weight in weights.items():
+                if weight is None:
+                    continue
+                weight_value = float(weight)
+                if weight_value < 0:
+                    raise ValueError(f"Negative weight for {name} in {weight_file}")
+                sanitized = self.champion_sanitizer.sanitize(name)
+                idx = self.champion2idx.get(sanitized)
+                if idx is None or idx == 0:
+                    raise ValueError(f"Unknown champion in priors: {name}")
+                vector[idx - 1] = weight_value
+
+            total = float(vector.sum())
+            if total <= 0:
+                raise ValueError(f"Champion priors for patch {patch_key} are empty.")
+            if abs(total - 1.0) > 1e-4:
+                raise ValueError(f"Champion priors for patch {patch_key} do not sum to 1.")
+
+            priors_by_patch[patch_key] = torch.tensor(
+                vector * self.champion_priors_strength,
+                dtype=torch.float32,
+            )
+
+        return priors_by_patch
+
     def _preprocess_samples(self):
         samples = []
         grouped_games = self.data.groupby(["seriesid", "gameid"])
@@ -416,6 +489,7 @@ class DraftDataset(Dataset):
             blue_row = blue_rows.iloc[0]
             red_row = red_rows.iloc[0]
             patch_index = self._patch_index_for_rows(blue_row, red_row)
+            patch_value = self._patch_value_for_rows(blue_row, red_row)
 
             fearless_picks = set()
             if self.series_fearless.get(seriesid, False):
@@ -475,6 +549,7 @@ class DraftDataset(Dataset):
                         "target": champion_index,
                         "already_picked_or_banned": set(used_champions),
                         "patch_index": patch_index,
+                        "patch": patch_value,
                     }
                 )
 

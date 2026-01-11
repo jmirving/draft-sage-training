@@ -28,6 +28,16 @@ def build_parser() -> argparse.ArgumentParser:
         help="Path to the DDragon champion mapping artifact JSON.",
     )
     parser.add_argument(
+        "--champion-priors-dir",
+        help="Directory containing per-patch champion priors JSON files.",
+    )
+    parser.add_argument(
+        "--champion-priors-strength",
+        type=float,
+        default=1.0,
+        help="Scale factor applied to champion priors when used as logit bias.",
+    )
+    parser.add_argument(
         "--train-split",
         type=float,
         default=0.8,
@@ -118,6 +128,8 @@ def parse_args(argv: list[str] | None = None) -> TrainingConfig:
         input_dir=args.input_dir,
         output_dir=args.output_dir,
         champion_mapping_path=args.champion_mapping_path,
+        champion_priors_dir=args.champion_priors_dir,
+        champion_priors_strength=args.champion_priors_strength,
         train_split=args.train_split,
         val_split=args.val_split,
         test_split=args.test_split,

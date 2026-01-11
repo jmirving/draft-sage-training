@@ -48,6 +48,8 @@ def run_epoch(model, data_loader, loss_function, optimizer=None, device="cpu", i
                 "draft_sequence": batch["draft_sequence"].to(device),
                 "patch_index": batch["patch_index"].to(device),
             }
+            if "champion_priors" in batch:
+                features["champion_priors"] = batch["champion_priors"].to(device)
             outputs = model(features)
             masked_outputs = outputs.masked_fill(batch["output_mask"].to(device) == 0, -1e9)
             loss = loss_function(masked_outputs, batch["target"].to(device))
@@ -71,6 +73,8 @@ def evaluate_model(model, data_loader, loss_function, device="cpu") -> Tuple[flo
                 "draft_sequence": batch["draft_sequence"].to(device),
                 "patch_index": batch["patch_index"].to(device),
             }
+            if "champion_priors" in batch:
+                features["champion_priors"] = batch["champion_priors"].to(device)
             outputs = model(features)
             masked_outputs = outputs.masked_fill(batch["output_mask"].to(device) == 0, -1e9)
             loss = loss_function(masked_outputs, batch["target"].to(device))
@@ -127,6 +131,11 @@ def build_dataset_meta(config: TrainingConfig) -> dict:
         label = Path(config.input_dir).name or config.input_dir
 
     dataset = {"label": label, "input_dir": config.input_dir}
+    if config.champion_priors_dir:
+        dataset["champion_priors"] = {
+            "dir": config.champion_priors_dir,
+            "strength": config.champion_priors_strength,
+        }
     if config.patch_window:
         dataset["patch_window"] = config.patch_window
     if config.patches:
@@ -181,6 +190,8 @@ def train(config: TrainingConfig) -> int:
         patch_window=config.patch_window,
         patches=config.patches,
         champion_mapping_path=config.champion_mapping_path,
+        champion_priors_dir=config.champion_priors_dir,
+        champion_priors_strength=config.champion_priors_strength,
     )
     if len(dataset) == 0:
         logging.error("No training samples available.")

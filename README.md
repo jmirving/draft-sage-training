@@ -39,6 +39,14 @@ python scripts/train.py --input-dir /path/to/prodata --output-dir ./artifacts \
   --champion-mapping-path /path/to/champion-mapping.json
 ```
 
+Optional: add per-patch champion priors as a logit bias:
+```
+python scripts/train.py --input-dir /path/to/prodata --output-dir ./artifacts \
+  --champion-mapping-path /path/to/champion-mapping.json \
+  --champion-priors-dir data/weights/champion-priors \
+  --champion-priors-strength 1.0
+```
+
 ## Experiment index helper
 Training now writes `summary.json` and updates `experiment-index.json`
 automatically (disable with `--no-index-update`). If you need to backfill or
