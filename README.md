@@ -40,7 +40,9 @@ python scripts/train.py --input-dir /path/to/prodata --output-dir ./artifacts \
 ```
 
 ## Experiment index helper
-After a run writes its `summary.json`, update the shared index:
+Training now writes `summary.json` and updates `experiment-index.json`
+automatically (disable with `--no-index-update`). If you need to backfill or
+rebuild the index, use:
 
 ```
 python scripts/update_experiment_index.py \

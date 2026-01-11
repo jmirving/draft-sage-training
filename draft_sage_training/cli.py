@@ -81,6 +81,28 @@ def build_parser() -> argparse.ArgumentParser:
         help="Explicit patch to include; repeatable.",
     )
     parser.add_argument(
+        "--category",
+        default="uncategorized",
+        help="Experiment category for UI grouping.",
+    )
+    parser.add_argument(
+        "--display-name",
+        help="Friendly display name for the run.",
+    )
+    parser.add_argument(
+        "--description",
+        help="Short description for the run summary.",
+    )
+    parser.add_argument(
+        "--dataset-label",
+        help="Friendly dataset label (e.g., 'Clean 2025').",
+    )
+    parser.add_argument(
+        "--no-index-update",
+        action="store_true",
+        help="Skip updating experiment-index.json.",
+    )
+    parser.add_argument(
         "--log-level",
         default="INFO",
         choices=["CRITICAL", "ERROR", "WARNING", "INFO", "DEBUG"],
@@ -105,6 +127,11 @@ def parse_args(argv: list[str] | None = None) -> TrainingConfig:
         learning_rate=args.learning_rate,
         patch_window=args.patch_window,
         patches=normalize_patches(args.patches),
+        category=args.category,
+        display_name=args.display_name,
+        description=args.description,
+        dataset_label=args.dataset_label,
+        update_index=not args.no_index_update,
         log_level=args.log_level,
     )
 
