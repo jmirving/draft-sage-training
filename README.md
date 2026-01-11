@@ -58,5 +58,16 @@ python scripts/update_experiment_index.py \
   --summary-path /path/to/output/<runId>/summary.json
 ```
 
+## Combine multiple experiment indexes
+To view multiple runs at once in the UI, combine their index files:
+
+```
+python scripts/build_combined_index.py \
+  --index /path/to/experiment-index.json \
+  --index /path/to/another/experiment-index.json \
+  --output /path/to/combined/experiment-index.json \
+  --root /path/to/server/root
+```
+
 ## Status
 Scaffold only. No training pipeline implemented yet.
