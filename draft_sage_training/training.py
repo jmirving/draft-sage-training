@@ -4,6 +4,7 @@ import json
 import logging
 import math
 import time
+from datetime import datetime, timezone
 from dataclasses import asdict
 from pathlib import Path
 from typing import Tuple
@@ -112,6 +113,52 @@ def write_json(path: Path, payload: dict) -> None:
         json.dump(payload, handle, indent=2, sort_keys=True)
 
 
+def parse_run_id_timestamp(run_identifier: str) -> str | None:
+    try:
+        parsed = datetime.strptime(run_identifier, "%Y%m%d_%H%M%S")
+        return parsed.strftime("%Y-%m-%dT%H:%M:%SZ")
+    except ValueError:
+        return None
+
+
+def build_dataset_meta(config: TrainingConfig) -> dict:
+    label = config.dataset_label
+    if not label:
+        label = Path(config.input_dir).name or config.input_dir
+
+    dataset = {"label": label, "input_dir": config.input_dir}
+    if config.patch_window:
+        dataset["patch_window"] = config.patch_window
+    if config.patches:
+        dataset["patches"] = list(config.patches)
+    return dataset
+
+
+def update_experiment_index(index_path: Path, run_entry: dict) -> None:
+    if index_path.exists():
+        with index_path.open("r", encoding="utf-8") as handle:
+            index_data = json.load(handle)
+    else:
+        index_data = {"schema_version": "1.0", "generated_at": None, "runs": []}
+
+    runs = index_data.get("runs")
+    if not isinstance(runs, list):
+        runs = []
+
+    run_id_value = run_entry.get("run_id")
+    if not run_id_value:
+        raise ValueError("summary.json must include run_id")
+
+    runs = [entry for entry in runs if entry.get("run_id") != run_id_value]
+    runs.append(run_entry)
+
+    index_data["schema_version"] = index_data.get("schema_version") or "1.0"
+    index_data["generated_at"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    index_data["runs"] = sorted(runs, key=lambda entry: entry.get("run_id") or "")
+
+    write_json(index_path, index_data)
+
+
 def train(config: TrainingConfig) -> int:
     if config.patch_window and config.patches:
         raise ValueError("Provide either patch_window or patches, not both.")
@@ -119,6 +166,11 @@ def train(config: TrainingConfig) -> int:
     split_total = config.train_split + config.val_split + config.test_split
     if not math.isclose(split_total, 1.0, rel_tol=1e-4):
         raise ValueError("Train/val/test splits must sum to 1.0.")
+
+    run_identifier = run_id()
+    created_at = parse_run_id_timestamp(run_identifier)
+    if not created_at:
+        created_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
     set_seed(config.seed)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -181,26 +233,75 @@ def train(config: TrainingConfig) -> int:
     model.load_state_dict(best_model_state)
     test_loss, test_accuracy = evaluate_model(model, test_loader, loss_function, device=device)
 
-    run_dir = Path(config.output_dir) / run_id()
+    run_dir = Path(config.output_dir) / run_identifier
     model_path = run_dir / "model.pth"
     config_path = run_dir / "config.json"
     metrics_path = run_dir / "metrics.json"
+    summary_path = run_dir / "summary.json"
 
     run_dir.mkdir(parents=True, exist_ok=True)
     torch.save(best_model_state, model_path)
     write_json(config_path, asdict(config))
-    write_json(
-        metrics_path,
-        {
-            "train_samples": len(train_dataset),
-            "val_samples": len(val_dataset),
-            "test_samples": len(test_dataset),
+    metrics_payload = {
+        "train_samples": len(train_dataset),
+        "val_samples": len(val_dataset),
+        "test_samples": len(test_dataset),
+        "best_val_loss": best_val_loss,
+        "test_loss": test_loss,
+        "test_accuracy": test_accuracy,
+    }
+    write_json(metrics_path, metrics_payload)
+
+    dataset_meta = build_dataset_meta(config)
+    summary_payload = {
+        "schema_version": "1.0",
+        "run_id": run_identifier,
+        "display_name": config.display_name or run_identifier,
+        "status": "completed",
+        "created_at": created_at,
+        "updated_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "description": config.description,
+        "category": config.category,
+        "dataset": dataset_meta,
+        "progress": {"epoch": config.epochs, "epochs": config.epochs},
+        "metrics": {
+            "accuracy": test_accuracy,
+            "loss": test_loss,
             "best_val_loss": best_val_loss,
-            "test_loss": test_loss,
-            "test_accuracy": test_accuracy,
         },
-    )
+        "samples": {
+            "train": len(train_dataset),
+            "val": len(val_dataset),
+            "test": len(test_dataset),
+        },
+        "paths": {
+            "config": config_path.name,
+            "metrics": metrics_path.name,
+            "model": model_path.name,
+        },
+    }
+    write_json(summary_path, summary_payload)
 
     logging.info("Saved model to %s", model_path)
     logging.info("Saved metrics to %s", metrics_path)
+    logging.info("Saved summary to %s", summary_path)
+
+    if config.update_index:
+        index_path = Path(config.output_dir) / "experiment-index.json"
+        run_entry = {
+            "run_id": run_identifier,
+            "display_name": summary_payload["display_name"],
+            "status": summary_payload["status"],
+            "category": summary_payload["category"],
+            "dataset": dataset_meta,
+            "metrics": {
+                "accuracy": test_accuracy,
+                "loss": test_loss,
+            },
+            "summary_path": str(summary_path.relative_to(Path(config.output_dir))),
+        }
+        update_experiment_index(index_path, run_entry)
+        logging.info("Updated experiment index at %s", index_path)
+    else:
+        logging.info("Skipping experiment index update.")
     return 0

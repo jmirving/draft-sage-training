@@ -18,6 +18,11 @@ class TrainingConfig:
     learning_rate: float
     patch_window: Optional[int]
     patches: Optional[Sequence[str]]
+    category: str
+    display_name: Optional[str]
+    description: Optional[str]
+    dataset_label: Optional[str]
+    update_index: bool
     log_level: str
 
 
