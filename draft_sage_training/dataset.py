@@ -13,6 +13,7 @@ from torch.utils.data import Dataset
 from draft_sage_training.utils.champion_sanitizer import ChampionSanitizer
 from draft_sage_training.utils.champion_mapping import load_champion_mapping
 from draft_sage_training.utils.draft_order import DRAFT_ORDER
+from draft_sage_training.utils.role_priors import DEFAULT_ROLE_ORDER, validate_role_priors_payload
 
 
 PICK_COLUMNS = ["pick1", "pick2", "pick3", "pick4", "pick5"]
@@ -322,6 +323,8 @@ class DraftDataset(Dataset):
         champion_priors_dir: Optional[str] = None,
         champion_priors_strength: float = 1.0,
         champion_priors_time_buckets: int = 1,
+        role_priors_dir: Optional[str] = None,
+        role_priors_strength: float = 1.0,
         use_league_team_embeddings: bool = True,
     ):
         if teams_df is None:
@@ -340,10 +343,11 @@ class DraftDataset(Dataset):
 
         mapping_entries = load_champion_mapping(champion_mapping_path)
         real_champions = [
-            entry.get("normalized_name")
+            str(entry.get("normalized_name"))
             for entry in mapping_entries
             if entry.get("normalized_name")
         ]
+        self.champion_names = real_champions
         for i, champ_name in enumerate(real_champions, start=1):
             sanitized_name = self.champion_sanitizer.sanitize(champ_name)
             self.champion2idx[sanitized_name] = i
@@ -377,6 +381,16 @@ class DraftDataset(Dataset):
             self.patch_time_boundaries = self._build_patch_time_boundaries()
         if champion_priors_dir:
             self.champion_priors_by_patch = self._load_champion_priors(champion_priors_dir)
+
+        self.role_priors_strength = role_priors_strength
+        self.role_priors_by_patch: Optional[dict[str, np.ndarray]] = None
+        self.default_role_priors = np.full(
+            (self.num_champions - 1, len(DEFAULT_ROLE_ORDER)),
+            1.0 / len(DEFAULT_ROLE_ORDER),
+            dtype=np.float32,
+        )
+        if role_priors_dir:
+            self.role_priors_by_patch = self._load_role_priors(role_priors_dir)
 
         self.series_fearless = detect_fearless_series(self.data, self.champion_sanitizer)
         if self.series_fearless:
@@ -418,6 +432,8 @@ class DraftDataset(Dataset):
             priors_key = row.get("priors_key") or row.get("patch")
             priors = self.champion_priors_by_patch.get(priors_key, self.default_champion_priors)
             payload["champion_priors"] = priors
+        if "role_priors" in row:
+            payload["role_priors"] = torch.tensor(row["role_priors"], dtype=torch.float32)
         return payload
 
     def get_output_mask(self, already_picked_or_banned):
@@ -580,6 +596,40 @@ class DraftDataset(Dataset):
 
         return priors_by_patch
 
+    def _load_role_priors(self, priors_dir: str) -> dict[str, np.ndarray]:
+        priors_path = Path(priors_dir)
+        if not priors_path.exists():
+            raise FileNotFoundError(f"Role priors directory not found: {priors_path}")
+
+        weight_files = sorted(priors_path.glob("*.json"))
+        if not weight_files:
+            raise FileNotFoundError(f"No role priors JSON files found in {priors_path}")
+
+        priors_by_patch: dict[str, np.ndarray] = {}
+        for weight_file in weight_files:
+            with weight_file.open(encoding="utf-8") as handle:
+                payload = json.load(handle)
+
+            roles = validate_role_priors_payload(payload, self.champion_names)
+            patch_value = payload.get("patch") or weight_file.stem
+            patch_key = str(patch_value)
+
+            weights = payload.get("weights")
+            if not isinstance(weights, dict):
+                raise ValueError(f"Invalid weights payload in {weight_file}")
+
+            matrix = np.zeros((self.num_champions - 1, len(roles)), dtype=np.float32)
+            for name, role_weights in weights.items():
+                sanitized = self.champion_sanitizer.sanitize(name)
+                idx = self.champion2idx.get(sanitized)
+                if idx is None or idx == 0:
+                    raise ValueError(f"Unknown champion in role priors: {name}")
+                matrix[idx - 1] = [float(role_weights[role]) for role in roles]
+
+            priors_by_patch[patch_key] = matrix
+
+        return priors_by_patch
+
     def _preprocess_samples(self):
         samples = []
         grouped_games = self.data.groupby(["seriesid", "gameid"])
@@ -605,6 +655,18 @@ class DraftDataset(Dataset):
             )
             time_bucket = self._time_bucket_for_patch_date(patch_value, game_date)
             priors_key = self._priors_key(patch_value, time_bucket)
+            role_priors = None
+            role_tally = None
+            if self.role_priors_by_patch is not None:
+                role_priors = (
+                    self.role_priors_by_patch.get(patch_value, self.default_role_priors)
+                    if patch_value
+                    else self.default_role_priors
+                )
+                role_tally = {
+                    "blue": np.zeros(len(DEFAULT_ROLE_ORDER), dtype=np.float32),
+                    "red": np.zeros(len(DEFAULT_ROLE_ORDER), dtype=np.float32),
+                }
 
             fearless_picks = set()
             if self.series_fearless.get(seriesid, False):
@@ -674,9 +736,20 @@ class DraftDataset(Dataset):
                     }
                 )
 
+                if role_priors is not None and role_tally is not None:
+                    if action_type == "pick":
+                        role_need = 1.0 - np.minimum(role_tally[side], 1.0)
+                        role_bias = role_priors @ role_need
+                    else:
+                        role_bias = np.zeros(self.num_champions - 1, dtype=np.float32)
+                    samples[-1]["role_priors"] = role_bias * self.role_priors_strength
+
                 if sanitized_name:
                     used_champions.add(sanitized_name)
 
                 draft_sequence[event_index] = champion_index
+
+                if role_priors is not None and role_tally is not None and action_type == "pick":
+                    role_tally[side] += role_priors[champion_index - 1]
 
         return samples

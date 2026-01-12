@@ -56,6 +56,8 @@ def run_epoch(model, data_loader, loss_function, optimizer=None, device="cpu", i
             }
             if "champion_priors" in batch:
                 features["champion_priors"] = batch["champion_priors"].to(device)
+            if "role_priors" in batch:
+                features["role_priors"] = batch["role_priors"].to(device)
             outputs = model(features)
             masked_outputs = outputs.masked_fill(batch["output_mask"].to(device) == 0, -1e9)
             loss = loss_function(masked_outputs, batch["target"].to(device))
@@ -86,6 +88,8 @@ def evaluate_model(model, data_loader, loss_function, device="cpu") -> Tuple[flo
             }
             if "champion_priors" in batch:
                 features["champion_priors"] = batch["champion_priors"].to(device)
+            if "role_priors" in batch:
+                features["role_priors"] = batch["role_priors"].to(device)
             outputs = model(features)
             masked_outputs = outputs.masked_fill(batch["output_mask"].to(device) == 0, -1e9)
             loss = loss_function(masked_outputs, batch["target"].to(device))
@@ -148,6 +152,11 @@ def build_dataset_meta(config: TrainingConfig) -> dict:
             "strength": config.champion_priors_strength,
             "time_buckets": config.champion_priors_time_buckets,
         }
+    if config.role_priors_dir:
+        dataset["role_priors"] = {
+            "dir": config.role_priors_dir,
+            "strength": config.role_priors_strength,
+        }
     if config.patch_window:
         dataset["patch_window"] = config.patch_window
     if config.patches:
@@ -205,6 +214,8 @@ def train(config: TrainingConfig) -> int:
         champion_priors_dir=config.champion_priors_dir,
         champion_priors_strength=config.champion_priors_strength,
         champion_priors_time_buckets=config.champion_priors_time_buckets,
+        role_priors_dir=config.role_priors_dir,
+        role_priors_strength=config.role_priors_strength,
         use_league_team_embeddings=config.use_league_team_embeddings,
     )
     if len(dataset) == 0:
@@ -283,6 +294,8 @@ def train(config: TrainingConfig) -> int:
         feature_set.extend(["league", "team"])
     if config.champion_priors_dir:
         feature_set.append("champion_priors")
+    if config.role_priors_dir:
+        feature_set.append("role_priors")
     metrics_payload = {
         "train_samples": len(train_dataset),
         "val_samples": len(val_dataset),
@@ -295,6 +308,8 @@ def train(config: TrainingConfig) -> int:
         "num_teams": dataset.num_teams,
         "champion_priors_time_buckets": config.champion_priors_time_buckets,
     }
+    if config.role_priors_dir:
+        metrics_payload["role_priors_strength"] = config.role_priors_strength
     write_json(metrics_path, metrics_payload)
 
     dataset_meta = build_dataset_meta(config)

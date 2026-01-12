@@ -12,6 +12,8 @@ class TrainingConfig:
     champion_priors_dir: Optional[str]
     champion_priors_strength: float
     champion_priors_time_buckets: int
+    role_priors_dir: Optional[str]
+    role_priors_strength: float
     use_league_team_embeddings: bool
     train_split: float
     val_split: float

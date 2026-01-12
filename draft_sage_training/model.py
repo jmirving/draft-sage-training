@@ -43,6 +43,7 @@ class DraftMLP(nn.Module):
         league_index = features["league_index"]
         team_index = features["team_index"]
         champion_priors = features.get("champion_priors")
+        role_priors = features.get("role_priors")
 
         draft_embedded = self.champion_embedding(draft_sequence)
         draft_flat = draft_embedded.view(draft_embedded.size(0), -1)
@@ -70,4 +71,7 @@ class DraftMLP(nn.Module):
         if champion_priors is not None:
             # Add per-champion priors as a logit bias (A/B switchable feature).
             logits = logits + champion_priors
+        if role_priors is not None:
+            # Role priors bias by role availability for the current side.
+            logits = logits + role_priors
         return logits
