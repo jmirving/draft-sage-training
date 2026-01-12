@@ -725,6 +725,8 @@ class DraftDataset(Dataset):
                         "draft_sequence": draft_sequence.copy(),
                         "target": champion_index,
                         "already_picked_or_banned": set(used_champions),
+                        "seriesid": seriesid,
+                        "gameid": gameid,
                         "patch_index": patch_index,
                         "patch": patch_value,
                         "priors_key": priors_key,

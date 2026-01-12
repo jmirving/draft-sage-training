@@ -49,6 +49,14 @@ python scripts/train.py --input-dir /path/to/prodata --output-dir ./artifacts \
 ```
 Add `--no-league-team-embeddings` to disable league/team embeddings for a run.
 
+## Diagnostics (sanity checks)
+Run quick diagnostics to validate splits, mask integrity, and overfit/shuffle behavior:
+
+```
+python scripts/diagnostics.py --input-dir /path/to/prodata \
+  --champion-mapping-path /path/to/champion-mapping.json
+```
+
 ## Experiment index helper
 Training now writes `summary.json` and updates `experiment-index.json`
 automatically (disable with `--no-index-update`). If you need to backfill or
