@@ -66,6 +66,7 @@ All three branches are pushed to origin and can be compared without modifying `m
   - test_loss: 3.1415
   - best_val_loss: 3.1164
   - artifacts: `/home/jirving/projects/lol/.tmp/training-clean-2025-league-team-priors-sweep/20260112_003737/`
+- Static priors ranges tested: 0.1, 0.15, 0.2, 0.25, 0.3, 0.5, 1.0, 2.0, 4.0, 8.0 (best at 0.25).
 - Time-aware priors (2 buckets) best:
   - strength: 0.5
   - test_accuracy: 0.1919
@@ -73,4 +74,7 @@ All three branches are pushed to origin and can be compared without modifying `m
   - best_val_loss: 3.1218
   - priors: `/home/jirving/projects/lol/.tmp/weights/champion-priors-timeaware-2/`
   - artifacts: `/home/jirving/projects/lol/.tmp/training-clean-2025-timeaware-priors-sweep/20260112_033410/`
+- Additional time-aware (2 buckets) tested: strengths 0.15, 0.25, 1.0 (best still 0.5).
+- No league/team embeddings (priors only) tested: strengths 0.5 and 4.0 (accuracies 0.1793–0.1798; worse than league/team).
 - Decision: time-aware priors are a possible minor improvement, but current results do not beat the best static priors.
+- UI combined index: `/home/jirving/projects/lol/.tmp/training-clean-2025-all/experiment-index.json`
