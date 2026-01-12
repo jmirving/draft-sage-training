@@ -11,6 +11,7 @@ class TrainingConfig:
     champion_mapping_path: str
     champion_priors_dir: Optional[str]
     champion_priors_strength: float
+    champion_priors_time_buckets: int
     use_league_team_embeddings: bool
     train_split: float
     val_split: float

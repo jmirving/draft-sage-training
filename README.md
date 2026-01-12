@@ -44,7 +44,8 @@ Optional: add per-patch champion priors as a logit bias:
 python scripts/train.py --input-dir /path/to/prodata --output-dir ./artifacts \
   --champion-mapping-path /path/to/champion-mapping.json \
   --champion-priors-dir data/weights/champion-priors \
-  --champion-priors-strength 1.0
+  --champion-priors-strength 1.0 \
+  --champion-priors-time-buckets 1
 ```
 Add `--no-league-team-embeddings` to disable league/team embeddings for a run.
 

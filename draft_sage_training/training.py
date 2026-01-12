@@ -146,6 +146,7 @@ def build_dataset_meta(config: TrainingConfig) -> dict:
         dataset["champion_priors"] = {
             "dir": config.champion_priors_dir,
             "strength": config.champion_priors_strength,
+            "time_buckets": config.champion_priors_time_buckets,
         }
     if config.patch_window:
         dataset["patch_window"] = config.patch_window
@@ -203,6 +204,7 @@ def train(config: TrainingConfig) -> int:
         champion_mapping_path=config.champion_mapping_path,
         champion_priors_dir=config.champion_priors_dir,
         champion_priors_strength=config.champion_priors_strength,
+        champion_priors_time_buckets=config.champion_priors_time_buckets,
         use_league_team_embeddings=config.use_league_team_embeddings,
     )
     if len(dataset) == 0:
@@ -291,6 +293,7 @@ def train(config: TrainingConfig) -> int:
         "feature_set": feature_set,
         "num_leagues": dataset.num_leagues,
         "num_teams": dataset.num_teams,
+        "champion_priors_time_buckets": config.champion_priors_time_buckets,
     }
     write_json(metrics_path, metrics_payload)
 

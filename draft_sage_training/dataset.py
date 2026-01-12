@@ -321,6 +321,7 @@ class DraftDataset(Dataset):
         champion_mapping_path: Optional[str] = None,
         champion_priors_dir: Optional[str] = None,
         champion_priors_strength: float = 1.0,
+        champion_priors_time_buckets: int = 1,
         use_league_team_embeddings: bool = True,
     ):
         if teams_df is None:
@@ -368,8 +369,12 @@ class DraftDataset(Dataset):
             self.num_teams = 1
 
         self.champion_priors_strength = champion_priors_strength
+        self.champion_priors_time_buckets = max(int(champion_priors_time_buckets), 1)
         self.champion_priors_by_patch: Optional[dict[str, torch.Tensor]] = None
         self.default_champion_priors = torch.zeros(self.num_champions - 1, dtype=torch.float32)
+        self.patch_time_boundaries: dict[str, list[pd.Timestamp]] = {}
+        if self.champion_priors_time_buckets > 1:
+            self.patch_time_boundaries = self._build_patch_time_boundaries()
         if champion_priors_dir:
             self.champion_priors_by_patch = self._load_champion_priors(champion_priors_dir)
 
@@ -410,8 +415,8 @@ class DraftDataset(Dataset):
             "team_index": torch.tensor(row.get("team_index", self.unknown_team_index), dtype=torch.long),
         }
         if self.champion_priors_by_patch is not None:
-            patch_value = row.get("patch")
-            priors = self.champion_priors_by_patch.get(patch_value, self.default_champion_priors)
+            priors_key = row.get("priors_key") or row.get("patch")
+            priors = self.champion_priors_by_patch.get(priors_key, self.default_champion_priors)
             payload["champion_priors"] = priors
         return payload
 
@@ -450,6 +455,52 @@ class DraftDataset(Dataset):
             return None
         patch_str = str(patch_value).strip()
         return patch_str or None
+
+    def _parse_date_value(self, value: object) -> Optional[pd.Timestamp]:
+        if value is None or pd.isna(value):
+            return None
+        parsed = pd.to_datetime(value, errors="coerce")
+        if pd.isna(parsed):
+            return None
+        return parsed
+
+    def _build_patch_time_boundaries(self) -> dict[str, list[pd.Timestamp]]:
+        if "date" not in self.data.columns:
+            raise ValueError("Time-aware priors require a date column in the dataset.")
+        normalized = self.data.copy()
+        normalized["_parsed_date"] = pd.to_datetime(normalized["date"], errors="coerce")
+        normalized = normalized[normalized["_parsed_date"].notna()].copy()
+        boundaries: dict[str, list[pd.Timestamp]] = {}
+        for patch_value, rows in normalized.groupby("patch"):
+            rows = rows.sort_values("_parsed_date")
+            total = len(rows)
+            if total == 0:
+                continue
+            cuts = []
+            for bucket in range(1, self.champion_priors_time_buckets):
+                idx = int(total * bucket / self.champion_priors_time_buckets)
+                idx = min(max(idx, 1), total - 1)
+                cuts.append(rows["_parsed_date"].iloc[idx])
+            boundaries[str(patch_value)] = cuts
+        return boundaries
+
+    def _time_bucket_for_patch_date(self, patch_value: Optional[str], date_value: Optional[pd.Timestamp]) -> Optional[int]:
+        if not patch_value or date_value is None:
+            return None
+        cuts = self.patch_time_boundaries.get(patch_value)
+        if not cuts:
+            return None
+        for idx, boundary in enumerate(cuts):
+            if date_value <= boundary:
+                return idx
+        return len(cuts)
+
+    def _priors_key(self, patch_value: Optional[str], time_bucket: Optional[int]) -> Optional[str]:
+        if not patch_value:
+            return None
+        if self.champion_priors_time_buckets <= 1 or time_bucket is None:
+            return patch_value
+        return f"{patch_value}__t{time_bucket + 1}of{self.champion_priors_time_buckets}"
 
     def _build_category_index(self, column: str) -> tuple[list[str], dict[str, int]]:
         if column not in self.data.columns:
@@ -549,6 +600,11 @@ class DraftDataset(Dataset):
             red_row = red_rows.iloc[0]
             patch_index = self._patch_index_for_rows(blue_row, red_row)
             patch_value = self._patch_value_for_rows(blue_row, red_row)
+            game_date = self._parse_date_value(blue_row.get("date")) or self._parse_date_value(
+                red_row.get("date")
+            )
+            time_bucket = self._time_bucket_for_patch_date(patch_value, game_date)
+            priors_key = self._priors_key(patch_value, time_bucket)
 
             fearless_picks = set()
             if self.series_fearless.get(seriesid, False):
@@ -609,6 +665,7 @@ class DraftDataset(Dataset):
                         "already_picked_or_banned": set(used_champions),
                         "patch_index": patch_index,
                         "patch": patch_value,
+                        "priors_key": priors_key,
                         "action_type": action_type,
                         "side": side,
                         "event_index": event_index,

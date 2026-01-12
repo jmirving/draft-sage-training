@@ -68,6 +68,12 @@ def parse_args() -> argparse.Namespace:
         help="Exclude picks from the prior calculation.",
     )
     parser.add_argument(
+        "--time-buckets",
+        type=int,
+        default=1,
+        help="Time buckets per patch (1 disables time-aware priors).",
+    )
+    parser.add_argument(
         "--source",
         default=None,
         help="Meta source label (defaults to input-dir name).",
@@ -210,6 +216,7 @@ def main() -> None:
     args = parse_args()
     include_picks = not args.no_picks
     include_bans = not args.no_bans
+    time_buckets = max(int(args.time_buckets), 1)
 
     if not include_picks and not include_bans:
         raise ValueError("At least one of picks or bans must be included.")
@@ -249,6 +256,12 @@ def main() -> None:
     if not champion_lookup:
         raise ValueError("Champion mapping did not contain any normalized entries.")
 
+    if time_buckets > 1:
+        if "date" not in teams_df.columns:
+            raise ValueError("Time-aware priors require a date column in the teams data.")
+        teams_df["__parsed_date"] = pd.to_datetime(teams_df["date"], errors="coerce")
+        teams_df = teams_df[teams_df["__parsed_date"].notna()].copy()
+
     patches = sort_patch_values(teams_df["patch"].dropna().unique())
     output_dir = Path(args.output_dir)
     source_label = args.source or Path(args.input_dir).name
@@ -258,48 +271,72 @@ def main() -> None:
 
     for patch_value in patches:
         patch_df = teams_df[teams_df["patch"] == patch_value]
-        counts: Counter[str] = Counter()
+        if time_buckets == 1:
+            bucket_frames = {0: patch_df}
+        else:
+            patch_df = patch_df.sort_values("__parsed_date")
+            total_rows = len(patch_df)
+            if total_rows == 0:
+                continue
+            bucket_indices = (pd.Series(range(total_rows)) * time_buckets / total_rows).astype(int)
+            bucket_frames = {}
+            for bucket_id in range(time_buckets):
+                bucket_mask = (bucket_indices == bucket_id).to_numpy()
+                bucket_frames[bucket_id] = patch_df.iloc[bucket_mask]
 
-        for _, row in patch_df.iterrows():
-            for column in pick_columns + ban_columns:
-                value = row.get(column)
-                if pd.isna(value) or value == "":
-                    continue
-                sanitized = sanitizer.sanitize(value)
-                if not sanitized:
-                    continue
-                normalized = champion_lookup.get(sanitized)
-                if not normalized:
-                    unknown_counts[sanitized] += 1
-                    continue
-                counts[normalized] += 1
+        for bucket_id, bucket_df in bucket_frames.items():
+            counts: Counter[str] = Counter()
+            for _, row in bucket_df.iterrows():
+                for column in pick_columns + ban_columns:
+                    value = row.get(column)
+                    if pd.isna(value) or value == "":
+                        continue
+                    sanitized = sanitizer.sanitize(value)
+                    if not sanitized:
+                        continue
+                    normalized = champion_lookup.get(sanitized)
+                    if not normalized:
+                        unknown_counts[sanitized] += 1
+                        continue
+                    counts[normalized] += 1
 
-        weights = normalize_weights(counts)
-        if not weights:
-            logging.warning("No weights generated for patch %s; skipping.", patch_value)
-            continue
+            weights = normalize_weights(counts)
+            if not weights:
+                logging.warning("No weights generated for patch %s bucket %s; skipping.", patch_value, bucket_id)
+                continue
 
-        weight_sum = sum(weights.values())
-        if abs(weight_sum - 1.0) > 1e-6:
-            raise ValueError(f"Weights for patch {patch_value} do not sum to 1 (got {weight_sum}).")
+            weight_sum = sum(weights.values())
+            if abs(weight_sum - 1.0) > 1e-6:
+                raise ValueError(
+                    f"Weights for patch {patch_value} bucket {bucket_id} do not sum to 1 (got {weight_sum})."
+                )
 
-        meta = {
-            "source": source_label,
-            "window": "per-patch",
-            "picks_included": include_picks,
-            "bans_included": include_bans,
-            "fearless_included": True,
-            "rows": int(len(patch_df)),
-        }
-        if args.patch_window:
-            meta["patch_window"] = args.patch_window
-        if args.patches:
-            meta["patches"] = args.patches
-        if args.note:
-            meta["note"] = args.note
+            if time_buckets > 1:
+                patch_key = f"{patch_value}__t{bucket_id + 1}of{time_buckets}"
+                window_label = f"per-patch-bucket-{bucket_id + 1}-of-{time_buckets}"
+            else:
+                patch_key = patch_value
+                window_label = "per-patch"
 
-        write_weights(output_dir, patch_value, weights, meta)
-        total_written += 1
+            meta = {
+                "source": source_label,
+                "window": window_label,
+                "picks_included": include_picks,
+                "bans_included": include_bans,
+                "fearless_included": True,
+                "rows": int(len(bucket_df)),
+            }
+            if time_buckets > 1:
+                meta["time_bucket"] = {"index": bucket_id + 1, "total": time_buckets}
+            if args.patch_window:
+                meta["patch_window"] = args.patch_window
+            if args.patches:
+                meta["patches"] = args.patches
+            if args.note:
+                meta["note"] = args.note
+
+            write_weights(output_dir, patch_key, weights, meta)
+            total_written += 1
 
     if unknown_counts:
         logging.warning(
