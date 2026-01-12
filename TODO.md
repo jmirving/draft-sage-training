@@ -12,9 +12,9 @@
 ## Weights (precomputed priors fed as inputs)
 - [x] Define common artifact conventions (versioning, patch keys, normalization rules). (Decision: per-patch files, probabilities, mapping by normalized_name; see WEIGHTS_CONVENTIONS.md.)
 - [x] Decide the shared data window rules (clean 2025 base, patch-aware recency). (Decision: per-patch weights.)
-- [ ] Note: if weights underperform, revisit time-aware (within-patch) weights to reduce leakage.
-- [ ] Add config/CLI plumbing for optional weight artifacts.
-- [ ] Extend dataset loader to accept optional weight features (no-op when missing).
+- [x] Note: if weights underperform, revisit time-aware (within-patch) weights to reduce leakage. (Tested 2-bucket time-aware priors; best 0.1919 vs static 0.1924.)
+- [x] Add config/CLI plumbing for optional weight artifacts.
+- [x] Extend dataset loader to accept optional weight features (no-op when missing).
 - [ ] Add basic validation + tests for missing/unknown keys.
 
 ### Role weights (per-champion role priors)

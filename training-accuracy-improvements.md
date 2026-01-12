@@ -56,3 +56,21 @@ Run each experiment in a separate terminal to keep logs isolated:
 3) `git_local checkout exp-picks-only` then run the command above.
 
 All three branches are pushed to origin and can be compared without modifying `main`.
+
+## Clean 2025 priors sweep (exp-clean-2025-ep20)
+- Data: clean 2025 (all picks/bans, both sides, complete blue/red rows)
+- Features: action/side/event + league/team embeddings + champion priors
+- Static priors best:
+  - strength: 0.25
+  - test_accuracy: 0.1924
+  - test_loss: 3.1415
+  - best_val_loss: 3.1164
+  - artifacts: `/home/jirving/projects/lol/.tmp/training-clean-2025-league-team-priors-sweep/20260112_003737/`
+- Time-aware priors (2 buckets) best:
+  - strength: 0.5
+  - test_accuracy: 0.1919
+  - test_loss: 3.1515
+  - best_val_loss: 3.1218
+  - priors: `/home/jirving/projects/lol/.tmp/weights/champion-priors-timeaware-2/`
+  - artifacts: `/home/jirving/projects/lol/.tmp/training-clean-2025-timeaware-priors-sweep/20260112_033410/`
+- Decision: time-aware priors are a possible minor improvement, but current results do not beat the best static priors.
