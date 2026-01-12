@@ -33,6 +33,9 @@ ROLE_ALIASES = {
     "sup": "support",
     "support": "support",
 }
+DEFAULT_INPUT_DIR = (
+    Path(__file__).resolve().parents[2] / "draft-sage" / "data" / "processed"
+)
 
 
 def parse_args() -> argparse.Namespace:
@@ -41,8 +44,8 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--input-dir",
-        required=True,
-        help="Processed prodata directory (or direct teams CSV folder).",
+        default=str(DEFAULT_INPUT_DIR),
+        help="Processed prodata directory with players CSVs.",
     )
     parser.add_argument(
         "--output-dir",

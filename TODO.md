@@ -19,7 +19,7 @@
 
 ### Role weights (per-champion role priors)
 - [ ] Confirm role prior schema (per patch, per champion, 5-role distribution, normalization rule). (Expect low per-patch variance.)
-- [ ] Decide data source + window (clean 2025 games; DDragon-only mapping).
+- [x] Decide data source + window (clean 2025 games; DDragon-only mapping). (Use players CSVs with `position` + `champion` in `draft-sage/data/processed`.)
 - [ ] Add artifact generator script to produce `data/role-priors/latest.json`.
 - [ ] Update model to consume the role prior feature (keep it simple).
 - [ ] Log role prior metadata (path/version) in training metrics output.
