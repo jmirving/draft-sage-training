@@ -38,6 +38,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="Scale factor applied to champion priors when used as logit bias.",
     )
     parser.add_argument(
+        "--no-league-team-embeddings",
+        action="store_true",
+        help="Disable league/team embeddings (use unknown indices only).",
+    )
+    parser.add_argument(
         "--train-split",
         type=float,
         default=0.8,
@@ -130,6 +135,7 @@ def parse_args(argv: list[str] | None = None) -> TrainingConfig:
         champion_mapping_path=args.champion_mapping_path,
         champion_priors_dir=args.champion_priors_dir,
         champion_priors_strength=args.champion_priors_strength,
+        use_league_team_embeddings=not args.no_league_team_embeddings,
         train_split=args.train_split,
         val_split=args.val_split,
         test_split=args.test_split,

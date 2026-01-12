@@ -203,6 +203,7 @@ def train(config: TrainingConfig) -> int:
         champion_mapping_path=config.champion_mapping_path,
         champion_priors_dir=config.champion_priors_dir,
         champion_priors_strength=config.champion_priors_strength,
+        use_league_team_embeddings=config.use_league_team_embeddings,
     )
     if len(dataset) == 0:
         logging.error("No training samples available.")
@@ -275,9 +276,9 @@ def train(config: TrainingConfig) -> int:
         "action_type",
         "side",
         "event_index",
-        "league",
-        "team",
     ]
+    if config.use_league_team_embeddings:
+        feature_set.extend(["league", "team"])
     if config.champion_priors_dir:
         feature_set.append("champion_priors")
     metrics_payload = {

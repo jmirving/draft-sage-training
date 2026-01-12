@@ -46,6 +46,7 @@ python scripts/train.py --input-dir /path/to/prodata --output-dir ./artifacts \
   --champion-priors-dir data/weights/champion-priors \
   --champion-priors-strength 1.0
 ```
+Add `--no-league-team-embeddings` to disable league/team embeddings for a run.
 
 ## Experiment index helper
 Training now writes `summary.json` and updates `experiment-index.json`
