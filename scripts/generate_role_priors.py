@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate per-patch role priors from team pick columns."""
+"""Generate per-patch role priors from player role records."""
 
 from __future__ import annotations
 
@@ -12,20 +12,27 @@ from pathlib import Path
 
 import pandas as pd
 
-from draft_sage_training.dataset import (
-    PICK_COLUMNS,
-    TEAM_IDS,
-    drop_incomplete_team_rows,
-    filter_patches,
-    load_processed_teams,
-    sort_patch_values,
-)
+from draft_sage_training.dataset import TEAM_IDS, filter_patches, load_latest_csv, sort_patch_values
 from draft_sage_training.utils.champion_mapping import load_champion_mapping
 from draft_sage_training.utils.champion_sanitizer import ChampionSanitizer
 from draft_sage_training.utils.role_priors import DEFAULT_ROLE_ORDER
 
 
-ROLE_COLUMNS = list(zip(DEFAULT_ROLE_ORDER, PICK_COLUMNS))
+ROLE_ALIASES = {
+    "top": "top",
+    "jng": "jungle",
+    "jg": "jungle",
+    "jungle": "jungle",
+    "mid": "mid",
+    "middle": "mid",
+    "bot": "bot",
+    "bottom": "bot",
+    "adc": "bot",
+    "ad": "bot",
+    "carry": "bot",
+    "sup": "support",
+    "support": "support",
+}
 
 
 def parse_args() -> argparse.Namespace:
@@ -86,6 +93,22 @@ def build_champion_lookup(mapping_entries: list[dict[str, object]], sanitizer: C
     return lookup
 
 
+def load_processed_players(input_dir: str) -> pd.DataFrame:
+    input_path = Path(input_dir)
+    players_dir = input_path / "players" if (input_path / "players").is_dir() else input_path
+    latest_csv = load_latest_csv(players_dir, ["players_*.csv", "*.csv"])
+    return pd.read_csv(latest_csv)
+
+
+def normalize_role(value: object) -> str | None:
+    if value is None or pd.isna(value):
+        return None
+    normalized = str(value).strip().lower()
+    if not normalized:
+        return None
+    return ROLE_ALIASES.get(normalized)
+
+
 def normalize_role_counts(
     counts: dict[str, Counter],
     champions: list[str],
@@ -136,23 +159,22 @@ def main() -> None:
 
     logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 
-    teams_df = load_processed_teams(args.input_dir)
-    if "participantid" in teams_df.columns:
-        teams_df = teams_df[teams_df["participantid"].isin(list(TEAM_IDS))].copy()
+    players_df = load_processed_players(args.input_dir)
+    if "participantid" in players_df.columns:
+        players_df = players_df[~players_df["participantid"].isin(list(TEAM_IDS))].copy()
 
-    teams_df = drop_incomplete_team_rows(teams_df)
-    teams_df = filter_patches(teams_df, patch_window=args.patch_window, patches=args.patches)
+    players_df = filter_patches(players_df, patch_window=args.patch_window, patches=args.patches)
 
-    if "patch" not in teams_df.columns:
-        raise ValueError("Patch column missing from teams data.")
+    if "patch" not in players_df.columns:
+        raise ValueError("Patch column missing from player data.")
+    if "position" not in players_df.columns:
+        raise ValueError("Position column missing from player data.")
+    if "champion" not in players_df.columns:
+        raise ValueError("Champion column missing from player data.")
 
-    teams_df = teams_df[teams_df["patch"].notna()].copy()
-    teams_df["patch"] = teams_df["patch"].astype(str)
-    teams_df = teams_df[teams_df["patch"].str.strip() != ""].copy()
-
-    for role, column in ROLE_COLUMNS:
-        if column not in teams_df.columns:
-            raise ValueError(f"Missing {column} column needed for role {role}.")
+    players_df = players_df[players_df["patch"].notna()].copy()
+    players_df["patch"] = players_df["patch"].astype(str)
+    players_df = players_df[players_df["patch"].str.strip() != ""].copy()
 
     mapping_entries = load_champion_mapping(args.champion_mapping_path)
     sanitizer = ChampionSanitizer()
@@ -161,7 +183,7 @@ def main() -> None:
         raise ValueError("Champion mapping did not contain any normalized entries.")
 
     champion_names = sorted({value for value in champion_lookup.values()})
-    patches = sort_patch_values(teams_df["patch"].dropna().unique())
+    patches = sort_patch_values(players_df["patch"].dropna().unique())
     output_dir = Path(args.output_dir)
     source_label = args.source or Path(args.input_dir).name
 
@@ -169,22 +191,24 @@ def main() -> None:
     total_written = 0
 
     for patch_value in patches:
-        patch_df = teams_df[teams_df["patch"] == patch_value]
+        patch_df = players_df[players_df["patch"] == patch_value]
         counts: dict[str, Counter] = defaultdict(Counter)
 
         for _, row in patch_df.iterrows():
-            for role, column in ROLE_COLUMNS:
-                value = row.get(column)
-                if pd.isna(value) or value == "":
-                    continue
-                sanitized = sanitizer.sanitize(value)
-                if not sanitized:
-                    continue
-                normalized = champion_lookup.get(sanitized)
-                if not normalized:
-                    unknown_counts[sanitized] += 1
-                    continue
-                counts[normalized][role] += 1
+            role_value = normalize_role(row.get("position"))
+            if not role_value:
+                continue
+            champ_value = row.get("champion")
+            if pd.isna(champ_value) or champ_value == "":
+                continue
+            sanitized = sanitizer.sanitize(champ_value)
+            if not sanitized:
+                continue
+            normalized = champion_lookup.get(sanitized)
+            if not normalized:
+                unknown_counts[sanitized] += 1
+                continue
+            counts[normalized][role_value] += 1
 
         weights = normalize_role_counts(counts, champion_names, DEFAULT_ROLE_ORDER)
 
@@ -192,7 +216,7 @@ def main() -> None:
             "source": source_label,
             "window": "per-patch",
             "rows": int(len(patch_df)),
-            "role_columns": [column for _, column in ROLE_COLUMNS],
+            "role_field": "position",
         }
         if args.patch_window:
             meta["patch_window"] = args.patch_window
