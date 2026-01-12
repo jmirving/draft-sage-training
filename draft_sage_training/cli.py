@@ -77,6 +77,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Fraction of data used for testing.",
     )
     parser.add_argument(
+        "--split-strategy",
+        default="seriesid",
+        choices=["random", "gameid", "seriesid"],
+        help="How to split train/val/test (random or grouped by id).",
+    )
+    parser.add_argument(
         "--seed",
         type=int,
         default=42,
@@ -158,6 +164,7 @@ def parse_args(argv: list[str] | None = None) -> TrainingConfig:
         train_split=args.train_split,
         val_split=args.val_split,
         test_split=args.test_split,
+        split_strategy=args.split_strategy,
         seed=args.seed,
         epochs=args.epochs,
         batch_size=args.batch_size,

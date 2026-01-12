@@ -78,3 +78,15 @@ All three branches are pushed to origin and can be compared without modifying `m
 - No league/team embeddings (priors only) tested: strengths 0.5 and 4.0 (accuracies 0.1793–0.1798; worse than league/team).
 - Decision: time-aware priors are a possible minor improvement, but current results do not beat the best static priors.
 - UI combined index: `/home/jirving/projects/lol/.tmp/training-clean-2025-all/experiment-index.json`
+
+## Clean 2025 grouped split sanity check (exp-clean-2025-ep20)
+- Data: clean 2025 with seriesid-grouped train/val/test splits
+- Features: action/side/event + league/team embeddings + champion priors + role priors
+- Command:
+  `python scripts/train.py --input-dir /home/jirving/projects/lol/.tmp/prodata-2025-clean --output-dir /home/jirving/projects/lol/.tmp/training-clean-2025-grouped --champion-mapping-path /home/jirving/projects/lol/lol-ddragon-snapshot-cron/data/ddragon/artifacts/champion-mapping/latest.json --champion-priors-dir /home/jirving/projects/lol/draft-sage-training/data/weights/champion-priors --champion-priors-strength 0.25 --role-priors-dir /home/jirving/projects/lol/draft-sage-training/data/weights/role-priors --role-priors-strength 0.25 --split-strategy seriesid --epochs 20 --batch-size 32`
+- Metrics:
+  - test_accuracy: 0.18255
+  - test_loss: 3.1895
+  - best_val_loss: 3.1172
+  - samples: train 142620, val 17680, test 17480
+- Artifacts: `/home/jirving/projects/lol/.tmp/training-clean-2025-grouped/20260112_225946/`

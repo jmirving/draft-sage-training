@@ -18,6 +18,7 @@ class TrainingConfig:
     train_split: float
     val_split: float
     test_split: float
+    split_strategy: str
     seed: int
     epochs: int
     batch_size: int

@@ -14,7 +14,14 @@ from torch.utils.data import DataLoader, Dataset, Subset
 from draft_sage_training.config import TrainingConfig, normalize_patches
 from draft_sage_training.dataset import DraftDataset
 from draft_sage_training.model import DraftMLP
-from draft_sage_training.training import evaluate_model, get_optimizer, run_epoch, set_seed, split_indices
+from draft_sage_training.training import (
+    build_split_groups,
+    evaluate_model,
+    get_optimizer,
+    run_epoch,
+    set_seed,
+    split_indices,
+)
 from draft_sage_training.utils.champion_mapping import DEFAULT_MAPPING_PATH
 from draft_sage_training.utils.draft_order import DRAFT_ORDER
 
@@ -229,6 +236,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Fraction of data used for testing.",
     )
     parser.add_argument(
+        "--split-strategy",
+        default="seriesid",
+        choices=["random", "gameid", "seriesid"],
+        help="How to split train/val/test (random or grouped by id).",
+    )
+    parser.add_argument(
         "--seed",
         type=int,
         default=42,
@@ -346,6 +359,7 @@ def build_config(args: argparse.Namespace) -> TrainingConfig:
         train_split=args.train_split,
         val_split=args.val_split,
         test_split=args.test_split,
+        split_strategy=args.split_strategy,
         seed=args.seed,
         epochs=args.epochs,
         batch_size=args.batch_size,
@@ -401,12 +415,14 @@ def run_diagnostics(config: TrainingConfig, diag_config: DiagnosticConfig) -> in
         logging.error("No training samples available.")
         return 1
 
+    groups = build_split_groups(dataset, config.split_strategy)
     train_indices, val_indices, test_indices = split_indices(
         len(dataset),
         train_split=config.train_split,
         val_split=config.val_split,
         test_split=config.test_split,
         seed=config.seed,
+        groups=groups,
     )
 
     logging.info("Total samples: %d", len(dataset))

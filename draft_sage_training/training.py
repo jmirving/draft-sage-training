@@ -7,12 +7,12 @@ import time
 from datetime import datetime, timezone
 from dataclasses import asdict
 from pathlib import Path
-from typing import Tuple
+from typing import Optional, Sequence, Tuple
 
 import numpy as np
 import torch
 import torch.nn as nn
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import GroupShuffleSplit, train_test_split
 from torch.utils.data import DataLoader, Subset
 
 from draft_sage_training.config import TrainingConfig
@@ -104,22 +104,70 @@ def evaluate_model(model, data_loader, loss_function, device="cpu") -> Tuple[flo
     return avg_loss, accuracy
 
 
-def split_indices(total_size: int, train_split: float, val_split: float, test_split: float, seed: int):
+def split_indices(
+    total_size: int,
+    train_split: float,
+    val_split: float,
+    test_split: float,
+    seed: int,
+    groups: Optional[Sequence[str]] = None,
+):
     indices = np.arange(total_size)
-    train_val, test = train_test_split(
-        indices,
+    if not groups:
+        train_val, test = train_test_split(
+            indices,
+            test_size=test_split,
+            random_state=seed,
+            shuffle=True,
+        )
+        val_relative = val_split / (train_split + val_split)
+        train, val = train_test_split(
+            train_val,
+            test_size=val_relative,
+            random_state=seed,
+            shuffle=True,
+        )
+        return train, val, test
+
+    if len(groups) != total_size:
+        raise ValueError("Group labels must align with dataset size.")
+
+    groups_array = np.asarray(groups)
+    train_val_split = GroupShuffleSplit(
+        n_splits=1,
         test_size=test_split,
         random_state=seed,
-        shuffle=True,
     )
+    train_val_idx, test_idx = next(train_val_split.split(indices, groups=groups_array))
+
     val_relative = val_split / (train_split + val_split)
-    train, val = train_test_split(
-        train_val,
+    val_splitter = GroupShuffleSplit(
+        n_splits=1,
         test_size=val_relative,
         random_state=seed,
-        shuffle=True,
     )
+    train_idx, val_idx = next(
+        val_splitter.split(train_val_idx, groups=groups_array[train_val_idx])
+    )
+    train = indices[train_val_idx][train_idx]
+    val = indices[train_val_idx][val_idx]
+    test = indices[test_idx]
     return train, val, test
+
+
+def build_split_groups(dataset: DraftDataset, strategy: str) -> Optional[list[str]]:
+    if not strategy or strategy == "random":
+        return None
+    if strategy not in {"gameid", "seriesid"}:
+        raise ValueError(f"Unsupported split strategy: {strategy}")
+    groups = []
+    for index, sample in enumerate(dataset.samples):
+        value = sample.get(strategy)
+        if value is None or (isinstance(value, float) and math.isnan(value)):
+            groups.append(f"missing-{index}")
+        else:
+            groups.append(str(value))
+    return groups
 
 
 def run_id() -> str:
@@ -222,12 +270,14 @@ def train(config: TrainingConfig) -> int:
         logging.error("No training samples available.")
         return 1
 
+    groups = build_split_groups(dataset, config.split_strategy)
     train_indices, val_indices, test_indices = split_indices(
         len(dataset),
         train_split=config.train_split,
         val_split=config.val_split,
         test_split=config.test_split,
         seed=config.seed,
+        groups=groups,
     )
     train_dataset = Subset(dataset, train_indices)
     val_dataset = Subset(dataset, val_indices)

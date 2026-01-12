@@ -48,6 +48,7 @@ python scripts/train.py --input-dir /path/to/prodata --output-dir ./artifacts \
   --champion-priors-time-buckets 1
 ```
 Add `--no-league-team-embeddings` to disable league/team embeddings for a run.
+Use `--split-strategy` (`seriesid` default) to avoid leakage across games.
 
 ## Diagnostics (sanity checks)
 Run quick diagnostics to validate splits, mask integrity, and overfit/shuffle behavior:
