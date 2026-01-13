@@ -90,3 +90,18 @@ All three branches are pushed to origin and can be compared without modifying `m
   - best_val_loss: 3.1172
   - samples: train 142620, val 17680, test 17480
 - Artifacts: `/home/jirving/projects/lol/.tmp/training-clean-2025-grouped/20260112_225946/`
+
+## Clean 2025 grouped split baseline (exp-clean-2025-ep20)
+- Data: clean 2025 with seriesid-grouped train/val/test splits
+- Features: action/side/event + league/team embeddings (no priors)
+- Command:
+  `python scripts/train.py --input-dir /home/jirving/projects/lol/.tmp/prodata-2025-clean --output-dir /home/jirving/projects/lol/.tmp/training-clean-2025-grouped-baseline --champion-mapping-path /home/jirving/projects/lol/lol-ddragon-snapshot-cron/data/ddragon/artifacts/champion-mapping/latest.json --split-strategy seriesid --epochs 20 --batch-size 32`
+- Metrics:
+  - test_accuracy: 0.18473
+  - test_loss: 3.1798
+  - best_val_loss: 3.0923
+  - samples: train 142620, val 17680, test 17480
+- Artifacts: `/home/jirving/projects/lol/.tmp/training-clean-2025-grouped-baseline/20260112_233136/`
+
+## Grouped split index
+- Combined index for grouped runs: `/home/jirving/projects/lol/.tmp/training-clean-2025-grouped-index/experiment-index.json`
