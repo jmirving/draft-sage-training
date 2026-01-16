@@ -74,7 +74,11 @@ def compute_uniform_chance(dataset: DraftDataset, indices: Iterable[int]) -> flo
     chances = []
     for idx in indices:
         sample = dataset.samples[idx]
-        mask = dataset.get_output_mask(sample["already_picked_or_banned"])
+        mask = dataset.get_output_mask(
+            sample["already_picked_or_banned"],
+            league_key=sample.get("league_key"),
+            game_date_value=sample.get("game_date_value"),
+        )
         available = float(np.sum(mask))
         if available > 0:
             chances.append(1.0 / available)
@@ -95,7 +99,11 @@ def check_target_masks(dataset: DraftDataset) -> int:
     violations = 0
     for sample in dataset.samples:
         target_index = sample["target"] - 1
-        mask = dataset.get_output_mask(sample["already_picked_or_banned"])
+        mask = dataset.get_output_mask(
+            sample["already_picked_or_banned"],
+            league_key=sample.get("league_key"),
+            game_date_value=sample.get("game_date_value"),
+        )
         if target_index < 0 or target_index >= len(mask) or mask[target_index] == 0:
             violations += 1
     return violations
@@ -185,6 +193,10 @@ def build_parser() -> argparse.ArgumentParser:
         "--champion-mapping-path",
         default=DEFAULT_MAPPING_PATH,
         help="Path to the DDragon champion mapping artifact JSON.",
+    )
+    parser.add_argument(
+        "--champion-eligibility-path",
+        help="Optional path to the per-league champion eligibility artifact JSON.",
     )
     parser.add_argument(
         "--champion-priors-dir",
@@ -350,6 +362,7 @@ def build_config(args: argparse.Namespace) -> TrainingConfig:
         input_dir=args.input_dir,
         output_dir=args.output_dir,
         champion_mapping_path=args.champion_mapping_path,
+        champion_eligibility_path=args.champion_eligibility_path,
         champion_priors_dir=args.champion_priors_dir,
         champion_priors_strength=args.champion_priors_strength,
         champion_priors_time_buckets=args.champion_priors_time_buckets,
@@ -404,6 +417,7 @@ def run_diagnostics(config: TrainingConfig, diag_config: DiagnosticConfig) -> in
         patch_window=config.patch_window,
         patches=config.patches,
         champion_mapping_path=config.champion_mapping_path,
+        champion_eligibility_path=config.champion_eligibility_path,
         champion_priors_dir=config.champion_priors_dir,
         champion_priors_strength=config.champion_priors_strength,
         champion_priors_time_buckets=config.champion_priors_time_buckets,

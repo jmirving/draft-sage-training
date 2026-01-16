@@ -11,6 +11,7 @@ import torch
 from torch.utils.data import Dataset
 
 from draft_sage_training.utils.champion_sanitizer import ChampionSanitizer
+from draft_sage_training.utils.champion_eligibility import load_champion_eligibility
 from draft_sage_training.utils.champion_mapping import load_champion_mapping
 from draft_sage_training.utils.draft_order import DRAFT_ORDER
 from draft_sage_training.utils.role_priors import DEFAULT_ROLE_ORDER, validate_role_priors_payload
@@ -320,6 +321,7 @@ class DraftDataset(Dataset):
         patch_window: Optional[int] = None,
         patches: Optional[Sequence[str]] = None,
         champion_mapping_path: Optional[str] = None,
+        champion_eligibility_path: Optional[str] = None,
         champion_priors_dir: Optional[str] = None,
         champion_priors_strength: float = 1.0,
         champion_priors_time_buckets: int = 1,
@@ -355,6 +357,14 @@ class DraftDataset(Dataset):
 
         self.num_champions = len(self.champion2idx)
         self.draft_features = 20
+
+        self.champion_eligibility_by_league: dict[str, np.ndarray] = {}
+        if champion_eligibility_path:
+            self.champion_eligibility_by_league = load_champion_eligibility(
+                champion_eligibility_path,
+                self.champion_sanitizer,
+                self.champion2idx,
+            )
 
         self.use_league_team_embeddings = use_league_team_embeddings
         self.unknown_league_index = 0
@@ -413,7 +423,11 @@ class DraftDataset(Dataset):
 
     def __getitem__(self, idx):
         row = self.samples[idx]
-        output_mask = self.get_output_mask(row["already_picked_or_banned"])
+        output_mask = self.get_output_mask(
+            row["already_picked_or_banned"],
+            league_key=row.get("league_key"),
+            game_date_value=row.get("game_date_value"),
+        )
         target = row["target"] - 1 if row["target"] > 0 else 0
         action_type = row.get("action_type", "ban")
         side = row.get("side", "blue")
@@ -436,12 +450,21 @@ class DraftDataset(Dataset):
             payload["role_priors"] = torch.tensor(row["role_priors"], dtype=torch.float32)
         return payload
 
-    def get_output_mask(self, already_picked_or_banned):
+    def get_output_mask(
+        self,
+        already_picked_or_banned,
+        league_key: Optional[str] = None,
+        game_date_value: Optional[int] = None,
+    ):
         mask = np.ones(self.num_champions - 1, dtype=np.float32)
         for champ in already_picked_or_banned:
             idx = self.champion2idx.get(champ)
             if idx is not None and idx > 0:
                 mask[idx - 1] = 0
+        if self.champion_eligibility_by_league and league_key and game_date_value is not None:
+            eligibility = self.champion_eligibility_by_league.get(league_key)
+            if eligibility is not None:
+                mask = mask * (game_date_value >= eligibility).astype(np.float32)
         return mask
 
     def _normalize_champion_id(self, champion_name: str) -> int:
@@ -653,6 +676,10 @@ class DraftDataset(Dataset):
             game_date = self._parse_date_value(blue_row.get("date")) or self._parse_date_value(
                 red_row.get("date")
             )
+            game_date_value = int(game_date.value) if game_date is not None else None
+            league_key = normalize_category(blue_row.get("league")) or normalize_category(
+                red_row.get("league")
+            )
             time_bucket = self._time_bucket_for_patch_date(patch_value, game_date)
             priors_key = self._priors_key(patch_value, time_bucket)
             role_priors = None
@@ -733,6 +760,8 @@ class DraftDataset(Dataset):
                         "action_type": action_type,
                         "side": side,
                         "event_index": event_index,
+                        "league_key": league_key,
+                        "game_date_value": game_date_value,
                         "league_index": self._league_index(row.get("league")),
                         "team_index": self._team_index(row.get("teamid")),
                     }

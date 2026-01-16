@@ -9,6 +9,7 @@ class TrainingConfig:
     input_dir: str
     output_dir: str
     champion_mapping_path: str
+    champion_eligibility_path: Optional[str]
     champion_priors_dir: Optional[str]
     champion_priors_strength: float
     champion_priors_time_buckets: int

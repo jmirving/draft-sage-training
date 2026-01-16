@@ -28,8 +28,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Path to the DDragon champion mapping artifact JSON.",
     )
     parser.add_argument(
+        "--champion-eligibility-path",
+        help="Optional path to the per-league champion eligibility artifact JSON.",
+    )
+    parser.add_argument(
         "--champion-priors-dir",
-        help="Directory containing per-patch champion priors JSON files.",
+        help="Directory containing per-patch pick/ban (champion) priors JSON files.",
     )
     parser.add_argument(
         "--champion-priors-strength",
@@ -45,7 +49,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--role-priors-dir",
-        help="Directory containing per-patch role priors JSON files.",
+        help="Directory containing per-patch champion role-distribution priors JSON files.",
     )
     parser.add_argument(
         "--role-priors-strength",
@@ -155,6 +159,7 @@ def parse_args(argv: list[str] | None = None) -> TrainingConfig:
         input_dir=args.input_dir,
         output_dir=args.output_dir,
         champion_mapping_path=args.champion_mapping_path,
+        champion_eligibility_path=args.champion_eligibility_path,
         champion_priors_dir=args.champion_priors_dir,
         champion_priors_strength=args.champion_priors_strength,
         champion_priors_time_buckets=args.champion_priors_time_buckets,

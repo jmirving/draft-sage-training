@@ -194,6 +194,8 @@ def build_dataset_meta(config: TrainingConfig) -> dict:
         label = Path(config.input_dir).name or config.input_dir
 
     dataset = {"label": label, "input_dir": config.input_dir}
+    if config.champion_eligibility_path:
+        dataset["champion_eligibility"] = {"path": config.champion_eligibility_path}
     if config.champion_priors_dir:
         dataset["champion_priors"] = {
             "dir": config.champion_priors_dir,
@@ -210,6 +212,42 @@ def build_dataset_meta(config: TrainingConfig) -> dict:
     if config.patches:
         dataset["patches"] = list(config.patches)
     return dataset
+
+
+def build_summary_payload(
+    *,
+    run_identifier: str,
+    status: str,
+    created_at: str,
+    updated_at: str,
+    description: str | None,
+    category: str,
+    display_name: str,
+    dataset_meta: dict,
+    epochs: int,
+    metrics: dict | None,
+    samples: dict | None,
+    paths: dict | None,
+    progress_epoch: int | None = None,
+) -> dict:
+    progress = None
+    if progress_epoch is not None:
+        progress = {"epoch": progress_epoch, "epochs": epochs}
+    return {
+        "schema_version": "1.0",
+        "run_id": run_identifier,
+        "display_name": display_name,
+        "status": status,
+        "created_at": created_at,
+        "updated_at": updated_at,
+        "description": description,
+        "category": category,
+        "dataset": dataset_meta,
+        "progress": progress,
+        "metrics": metrics,
+        "samples": samples,
+        "paths": paths,
+    }
 
 
 def update_experiment_index(index_path: Path, run_entry: dict) -> None:
@@ -259,6 +297,7 @@ def train(config: TrainingConfig) -> int:
         patch_window=config.patch_window,
         patches=config.patches,
         champion_mapping_path=config.champion_mapping_path,
+        champion_eligibility_path=config.champion_eligibility_path,
         champion_priors_dir=config.champion_priors_dir,
         champion_priors_strength=config.champion_priors_strength,
         champion_priors_time_buckets=config.champion_priors_time_buckets,
@@ -282,6 +321,55 @@ def train(config: TrainingConfig) -> int:
     train_dataset = Subset(dataset, train_indices)
     val_dataset = Subset(dataset, val_indices)
     test_dataset = Subset(dataset, test_indices)
+
+    run_dir = Path(config.output_dir) / run_identifier
+    model_path = run_dir / "model.pth"
+    config_path = run_dir / "config.json"
+    metrics_path = run_dir / "metrics.json"
+    summary_path = run_dir / "summary.json"
+
+    run_dir.mkdir(parents=True, exist_ok=True)
+    write_json(config_path, asdict(config))
+
+    dataset_meta = build_dataset_meta(config)
+    base_paths = {
+        "config": config_path.name,
+        "metrics": metrics_path.name,
+        "model": model_path.name,
+    }
+    running_summary = build_summary_payload(
+        run_identifier=run_identifier,
+        status="running",
+        created_at=created_at,
+        updated_at=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        description=config.description,
+        category=config.category,
+        display_name=config.display_name or run_identifier,
+        dataset_meta=dataset_meta,
+        epochs=config.epochs,
+        metrics={"accuracy": None, "loss": None, "best_val_loss": None},
+        samples={
+            "train": len(train_dataset),
+            "val": len(val_dataset),
+            "test": len(test_dataset),
+        },
+        paths=base_paths,
+        progress_epoch=0,
+    )
+    write_json(summary_path, running_summary)
+    if config.update_index:
+        index_path = Path(config.output_dir) / "experiment-index.json"
+        run_entry = {
+            "run_id": run_identifier,
+            "display_name": running_summary["display_name"],
+            "status": running_summary["status"],
+            "category": running_summary["category"],
+            "dataset": dataset_meta,
+            "metrics": {"accuracy": None, "loss": None},
+            "summary_path": str(summary_path.relative_to(Path(config.output_dir))),
+        }
+        update_experiment_index(index_path, run_entry)
+        logging.info("Marked run as running in %s", index_path)
 
     model = DraftMLP(
         feature_dims={
@@ -317,22 +405,18 @@ def train(config: TrainingConfig) -> int:
             best_val_loss = val_loss
             best_model_state = model.state_dict()
 
+        running_summary["updated_at"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        running_summary["progress"] = {"epoch": epoch + 1, "epochs": config.epochs}
+        write_json(summary_path, running_summary)
+
     if best_model_state is None:
         logging.error("Training did not produce a model state.")
         return 1
 
     model.load_state_dict(best_model_state)
     test_loss, test_accuracy = evaluate_model(model, test_loader, loss_function, device=device)
-
-    run_dir = Path(config.output_dir) / run_identifier
-    model_path = run_dir / "model.pth"
-    config_path = run_dir / "config.json"
-    metrics_path = run_dir / "metrics.json"
-    summary_path = run_dir / "summary.json"
-
-    run_dir.mkdir(parents=True, exist_ok=True)
     torch.save(best_model_state, model_path)
-    write_json(config_path, asdict(config))
+
     feature_set = [
         "draft_sequence",
         "patch",
@@ -362,34 +446,29 @@ def train(config: TrainingConfig) -> int:
         metrics_payload["role_priors_strength"] = config.role_priors_strength
     write_json(metrics_path, metrics_payload)
 
-    dataset_meta = build_dataset_meta(config)
-    summary_payload = {
-        "schema_version": "1.0",
-        "run_id": run_identifier,
-        "display_name": config.display_name or run_identifier,
-        "status": "completed",
-        "created_at": created_at,
-        "updated_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-        "description": config.description,
-        "category": config.category,
-        "dataset": dataset_meta,
-        "progress": {"epoch": config.epochs, "epochs": config.epochs},
-        "metrics": {
+    summary_payload = build_summary_payload(
+        run_identifier=run_identifier,
+        status="completed",
+        created_at=created_at,
+        updated_at=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        description=config.description,
+        category=config.category,
+        display_name=config.display_name or run_identifier,
+        dataset_meta=dataset_meta,
+        epochs=config.epochs,
+        metrics={
             "accuracy": test_accuracy,
             "loss": test_loss,
             "best_val_loss": best_val_loss,
         },
-        "samples": {
+        samples={
             "train": len(train_dataset),
             "val": len(val_dataset),
             "test": len(test_dataset),
         },
-        "paths": {
-            "config": config_path.name,
-            "metrics": metrics_path.name,
-            "model": model_path.name,
-        },
-    }
+        paths=base_paths,
+        progress_epoch=config.epochs,
+    )
     write_json(summary_path, summary_payload)
 
     logging.info("Saved model to %s", model_path)

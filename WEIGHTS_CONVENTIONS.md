@@ -4,6 +4,14 @@
 Define a simple, inspectable weight artifact format so per-patch weights can be
 generated, compared, and consumed consistently.
 
+## Weight meanings (naming clarity)
+- `champion-priors`: Per-patch **pick/ban frequency priors** for champions. These are
+  distributions over champions (sum-to-1) and are added as a logit bias for
+  both picks and bans.
+- `role-priors`: Per-patch **champion role distributions** (Top/Jungle/Mid/Bot/Sup).
+  These are used to bias picks toward unmet team roles and are only applied to
+  pick actions (ban actions receive a zero role bias).
+
 ## Storage layout
 Per-patch files, one file per patch:
 

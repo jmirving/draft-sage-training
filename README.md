@@ -47,6 +47,19 @@ python scripts/train.py --input-dir /path/to/prodata --output-dir ./artifacts \
   --champion-priors-strength 1.0 \
   --champion-priors-time-buckets 1
 ```
+Terminology: `champion-priors` are pick/ban frequency priors (per patch) added
+as a logit bias; `role-priors` are per-champion role distributions used to bias
+picks toward unmet team roles.
+Optional: gate champions by league availability (no backfill) using a generated
+eligibility artifact:
+```
+python scripts/generate_champion_eligibility.py --input-dir /path/to/prodata \
+  --champion-mapping-path /path/to/champion-mapping.json \
+  --output-path data/eligibility/champion-eligibility.json
+```
+Then pass `--champion-eligibility-path data/eligibility/champion-eligibility.json`
+to training or diagnostics runs.
+If a league is missing from the artifact, eligibility gating is skipped for that league.
 Add `--no-league-team-embeddings` to disable league/team embeddings for a run.
 Use `--split-strategy` (`seriesid` default) to avoid leakage across games.
 
