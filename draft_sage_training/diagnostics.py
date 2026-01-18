@@ -225,6 +225,23 @@ def build_parser() -> argparse.ArgumentParser:
         help="Scale factor applied to role priors when used as logit bias.",
     )
     parser.add_argument(
+        "--early-blue-ban-priors",
+        action="store_true",
+        help="Enable opponent/team + series priors for early blue bans (B1-B3).",
+    )
+    parser.add_argument(
+        "--early-blue-ban-priors-strength",
+        type=float,
+        default=1.0,
+        help="Scale factor applied to early-blue ban priors when used as logit bias.",
+    )
+    parser.add_argument(
+        "--team-priors-window-days",
+        type=int,
+        default=30,
+        help="Rolling window (days) for opponent team pick/ban priors.",
+    )
+    parser.add_argument(
         "--no-league-team-embeddings",
         action="store_true",
         help="Disable league/team embeddings (use unknown indices only).",
@@ -368,6 +385,9 @@ def build_config(args: argparse.Namespace) -> TrainingConfig:
         champion_priors_time_buckets=args.champion_priors_time_buckets,
         role_priors_dir=args.role_priors_dir,
         role_priors_strength=args.role_priors_strength,
+        early_blue_ban_priors=args.early_blue_ban_priors,
+        early_blue_ban_priors_strength=args.early_blue_ban_priors_strength,
+        team_priors_window_days=args.team_priors_window_days,
         use_league_team_embeddings=not args.no_league_team_embeddings,
         train_split=args.train_split,
         val_split=args.val_split,
@@ -423,6 +443,9 @@ def run_diagnostics(config: TrainingConfig, diag_config: DiagnosticConfig) -> in
         champion_priors_time_buckets=config.champion_priors_time_buckets,
         role_priors_dir=config.role_priors_dir,
         role_priors_strength=config.role_priors_strength,
+        early_blue_ban_priors=config.early_blue_ban_priors,
+        early_blue_ban_priors_strength=config.early_blue_ban_priors_strength,
+        team_priors_window_days=config.team_priors_window_days,
         use_league_team_embeddings=config.use_league_team_embeddings,
     )
     if len(dataset) == 0:

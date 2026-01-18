@@ -20,6 +20,15 @@ from draft_sage_training.utils.role_priors import DEFAULT_ROLE_ORDER, validate_r
 PICK_COLUMNS = ["pick1", "pick2", "pick3", "pick4", "pick5"]
 BAN_COLUMNS = ["ban1", "ban2", "ban3", "ban4", "ban5"]
 TEAM_IDS = {100, 200}
+EARLY_BLUE_BAN_MAX = 3
+EARLY_BLUE_BAN_PRIOR_SERIES_WEIGHT = 0.6
+EARLY_BLUE_BAN_PRIOR_TEAM_WEIGHT = 0.4
+TEAM_PRIOR_BAN_WEIGHT = 0.5
+TEAM_PRIOR_PICK_WEIGHT = 0.5
+SERIES_PRIOR_SAME_SIDE_WEIGHT = 0.55
+SERIES_PRIOR_OVERALL_WEIGHT = 0.25
+SERIES_PRIOR_OPPOSITE_WEIGHT = 0.10
+SERIES_PRIOR_MISS_WEIGHT = 0.10
 
 
 def load_latest_csv(directory: Path, patterns: Sequence[str]) -> Path:
@@ -327,6 +336,9 @@ class DraftDataset(Dataset):
         champion_priors_time_buckets: int = 1,
         role_priors_dir: Optional[str] = None,
         role_priors_strength: float = 1.0,
+        early_blue_ban_priors: bool = False,
+        early_blue_ban_priors_strength: float = 1.0,
+        team_priors_window_days: int = 30,
         use_league_team_embeddings: bool = True,
     ):
         if teams_df is None:
@@ -416,6 +428,13 @@ class DraftDataset(Dataset):
         self.unknown_patch_index = 0
         self.num_patches = len(self.patch_values) + 1
 
+        self.early_blue_ban_priors_enabled = early_blue_ban_priors
+        self.early_blue_ban_priors_strength = early_blue_ban_priors_strength
+        self.team_priors_window_days = max(int(team_priors_window_days), 1)
+        self.early_blue_ban_priors_by_game: dict[tuple[str, object], torch.Tensor] = {}
+        if self.early_blue_ban_priors_enabled:
+            self.early_blue_ban_priors_by_game = self._build_early_blue_ban_priors()
+
         self.samples = self._preprocess_samples()
 
     def __len__(self):
@@ -442,10 +461,22 @@ class DraftDataset(Dataset):
             "league_index": torch.tensor(row.get("league_index", self.unknown_league_index), dtype=torch.long),
             "team_index": torch.tensor(row.get("team_index", self.unknown_team_index), dtype=torch.long),
         }
+        champion_priors = None
         if self.champion_priors_by_patch is not None:
             priors_key = row.get("priors_key") or row.get("patch")
-            priors = self.champion_priors_by_patch.get(priors_key, self.default_champion_priors)
-            payload["champion_priors"] = priors
+            champion_priors = self.champion_priors_by_patch.get(
+                priors_key, self.default_champion_priors
+            )
+        if self.early_blue_ban_priors_enabled and row.get("is_early_blue_ban"):
+            game_key = (row.get("seriesid"), row.get("gameid"))
+            ban_priors = self.early_blue_ban_priors_by_game.get(game_key)
+            if ban_priors is not None:
+                if champion_priors is None:
+                    champion_priors = ban_priors
+                else:
+                    champion_priors = champion_priors + ban_priors
+        if champion_priors is not None:
+            payload["champion_priors"] = champion_priors
         if "role_priors" in row:
             payload["role_priors"] = torch.tensor(row["role_priors"], dtype=torch.float32)
         return payload
@@ -653,6 +684,264 @@ class DraftDataset(Dataset):
 
         return priors_by_patch
 
+    def _normalize_prior(self, weights: np.ndarray) -> np.ndarray:
+        total = float(weights.sum())
+        if total <= 0:
+            return np.zeros_like(weights)
+        return weights / total
+
+    def _build_pick_prior(self, pick_counts: np.ndarray, availability_counts: np.ndarray) -> np.ndarray:
+        rates = np.divide(
+            pick_counts,
+            availability_counts,
+            out=np.zeros_like(pick_counts),
+            where=availability_counts > 0,
+        )
+        return self._normalize_prior(rates)
+
+    def _blend_priors(self, priors: list[tuple[np.ndarray | None, float]]) -> np.ndarray:
+        combined = np.zeros(self.num_champions - 1, dtype=np.float32)
+        for prior, weight in priors:
+            if prior is None:
+                continue
+            combined += prior * weight
+        total = float(combined.sum())
+        if total <= 0:
+            return combined
+        return combined / total
+
+    def _game_sort_key(self, blue_row: pd.Series, red_row: pd.Series, gameid: object) -> tuple[int, object]:
+        game_number = blue_row.get("game") if "game" in blue_row else None
+        if game_number is None or pd.isna(game_number):
+            game_number = red_row.get("game") if "game" in red_row else None
+        if game_number is None or pd.isna(game_number):
+            return (1, str(gameid))
+        try:
+            return (0, int(game_number))
+        except (TypeError, ValueError):
+            return (0, str(game_number))
+
+    def _compute_game_draft_stats(self, blue_row: pd.Series, red_row: pd.Series) -> dict[str, np.ndarray]:
+        size = self.num_champions - 1
+        blue_bans = np.zeros(size, dtype=np.float32)
+        red_bans = np.zeros(size, dtype=np.float32)
+        blue_pick_counts = np.zeros(size, dtype=np.float32)
+        red_pick_counts = np.zeros(size, dtype=np.float32)
+        blue_availability_counts = np.zeros(size, dtype=np.float32)
+        red_availability_counts = np.zeros(size, dtype=np.float32)
+        available_mask = np.ones(size, dtype=np.float32)
+
+        for side, action_type, action_number in DRAFT_ORDER:
+            row = blue_row if side == "blue" else red_row
+            column_prefix = "ban" if action_type == "ban" else "pick"
+            column_name = f"{column_prefix}{action_number}"
+            champion_name = row.get(column_name)
+            champion_index = self._normalize_champion_id(champion_name)
+
+            if action_type == "pick":
+                if side == "blue":
+                    blue_availability_counts += available_mask
+                    if champion_index > 0:
+                        blue_pick_counts[champion_index - 1] += 1.0
+                else:
+                    red_availability_counts += available_mask
+                    if champion_index > 0:
+                        red_pick_counts[champion_index - 1] += 1.0
+            else:
+                if champion_index > 0:
+                    if side == "blue":
+                        blue_bans[champion_index - 1] = 1.0
+                    else:
+                        red_bans[champion_index - 1] = 1.0
+
+            if champion_index > 0:
+                available_mask[champion_index - 1] = 0.0
+
+        return {
+            "blue_bans": blue_bans,
+            "red_bans": red_bans,
+            "blue_pick_counts": blue_pick_counts,
+            "red_pick_counts": red_pick_counts,
+            "blue_availability_counts": blue_availability_counts,
+            "red_availability_counts": red_availability_counts,
+        }
+
+    def _build_game_contexts(self) -> list[dict[str, object]]:
+        contexts: list[dict[str, object]] = []
+        grouped_games = self.data.groupby(["seriesid", "gameid"])
+
+        for (seriesid, gameid), game_rows in grouped_games:
+            blue_rows = game_rows[game_rows["side"].str.lower() == "blue"]
+            red_rows = game_rows[game_rows["side"].str.lower() == "red"]
+
+            if blue_rows.empty or red_rows.empty:
+                continue
+
+            blue_row = blue_rows.iloc[0]
+            red_row = red_rows.iloc[0]
+            game_date = self._parse_date_value(blue_row.get("date")) or self._parse_date_value(
+                red_row.get("date")
+            )
+            stats = self._compute_game_draft_stats(blue_row, red_row)
+            contexts.append(
+                {
+                    "seriesid": seriesid,
+                    "gameid": gameid,
+                    "game_sort_key": self._game_sort_key(blue_row, red_row, gameid),
+                    "date": game_date,
+                    "blue_team": normalize_category(blue_row.get("teamid")),
+                    "red_team": normalize_category(red_row.get("teamid")),
+                    **stats,
+                }
+            )
+
+        return contexts
+
+    def _build_series_ban_priors(self, contexts: list[dict[str, object]]) -> dict[tuple[str, object], np.ndarray]:
+        series_groups: dict[str, list[dict[str, object]]] = {}
+        for context in contexts:
+            seriesid = context.get("seriesid")
+            if seriesid is None:
+                continue
+            series_groups.setdefault(str(seriesid), []).append(context)
+
+        series_priors: dict[tuple[str, object], np.ndarray] = {}
+        size = self.num_champions - 1
+
+        for seriesid, games in series_groups.items():
+            games.sort(key=lambda entry: entry["game_sort_key"])
+            blue_counts = np.zeros(size, dtype=np.float32)
+            red_counts = np.zeros(size, dtype=np.float32)
+            games_seen = 0
+
+            for game in games:
+                if games_seen <= 0:
+                    series_prior = np.zeros(size, dtype=np.float32)
+                else:
+                    same_side = blue_counts / float(games_seen)
+                    opposite_side = red_counts / float(games_seen)
+                    overall = (blue_counts + red_counts) / float(games_seen)
+                    miss_rate = 1.0 - overall
+                    series_prior = (
+                        SERIES_PRIOR_SAME_SIDE_WEIGHT * same_side
+                        + SERIES_PRIOR_OVERALL_WEIGHT * overall
+                        + SERIES_PRIOR_OPPOSITE_WEIGHT * opposite_side
+                        - SERIES_PRIOR_MISS_WEIGHT * miss_rate
+                    )
+                    series_prior = np.clip(series_prior, 0.0, None)
+                    series_prior = self._normalize_prior(series_prior)
+
+                series_priors[(seriesid, game["gameid"])] = series_prior
+                blue_counts += game["blue_bans"]
+                red_counts += game["red_bans"]
+                games_seen += 1
+
+        return series_priors
+
+    def _build_team_priors(self, contexts: list[dict[str, object]]) -> dict[tuple[str, object, str], np.ndarray]:
+        records_by_team: dict[str, list[dict[str, object]]] = {}
+        priors_by_game: dict[tuple[str, object, str], np.ndarray] = {}
+        size = self.num_champions - 1
+        empty_prior = np.zeros(size, dtype=np.float32)
+
+        for context in contexts:
+            seriesid = context.get("seriesid")
+            gameid = context.get("gameid")
+            game_date = context.get("date")
+
+            for side in ("blue", "red"):
+                team_key = context.get(f"{side}_team")
+                if not team_key:
+                    continue
+                if game_date is None or pd.isna(game_date):
+                    priors_by_game[(str(seriesid), gameid, team_key)] = empty_prior
+                    continue
+
+                if side == "blue":
+                    ban_against = np.zeros(size, dtype=np.float32)
+                    pick_counts = context["blue_pick_counts"]
+                    availability_counts = context["blue_availability_counts"]
+                else:
+                    ban_against = context["blue_bans"]
+                    pick_counts = context["red_pick_counts"]
+                    availability_counts = context["red_availability_counts"]
+
+                records_by_team.setdefault(team_key, []).append(
+                    {
+                        "seriesid": str(seriesid),
+                        "gameid": gameid,
+                        "date": game_date,
+                        "pick_counts": pick_counts,
+                        "availability_counts": availability_counts,
+                        "ban_against_counts": ban_against,
+                    }
+                )
+
+        window = pd.Timedelta(days=self.team_priors_window_days)
+        for team_key, records in records_by_team.items():
+            records.sort(key=lambda entry: entry["date"])
+            window_pick = np.zeros(size, dtype=np.float32)
+            window_available = np.zeros(size, dtype=np.float32)
+            window_bans = np.zeros(size, dtype=np.float32)
+            start_idx = 0
+
+            for idx, record in enumerate(records):
+                cutoff = record["date"] - window
+                while start_idx < idx and records[start_idx]["date"] < cutoff:
+                    window_pick -= records[start_idx]["pick_counts"]
+                    window_available -= records[start_idx]["availability_counts"]
+                    window_bans -= records[start_idx]["ban_against_counts"]
+                    start_idx += 1
+
+                pick_prior = self._build_pick_prior(window_pick, window_available)
+                ban_prior = self._normalize_prior(window_bans)
+                team_prior = self._blend_priors(
+                    [
+                        (ban_prior, TEAM_PRIOR_BAN_WEIGHT),
+                        (pick_prior, TEAM_PRIOR_PICK_WEIGHT),
+                    ]
+                )
+
+                priors_by_game[(record["seriesid"], record["gameid"], team_key)] = team_prior
+
+                window_pick += record["pick_counts"]
+                window_available += record["availability_counts"]
+                window_bans += record["ban_against_counts"]
+
+        return priors_by_game
+
+    def _build_early_blue_ban_priors(self) -> dict[tuple[str, object], torch.Tensor]:
+        contexts = self._build_game_contexts()
+        series_priors = self._build_series_ban_priors(contexts)
+        team_priors = self._build_team_priors(contexts)
+        priors_by_game: dict[tuple[str, object], torch.Tensor] = {}
+
+        for context in contexts:
+            seriesid = str(context.get("seriesid"))
+            gameid = context.get("gameid")
+            red_team = context.get("red_team")
+
+            series_prior = series_priors.get((seriesid, gameid))
+            team_prior = None
+            if red_team:
+                team_prior = team_priors.get((seriesid, gameid, red_team))
+
+            combined = self._blend_priors(
+                [
+                    (series_prior, EARLY_BLUE_BAN_PRIOR_SERIES_WEIGHT),
+                    (team_prior, EARLY_BLUE_BAN_PRIOR_TEAM_WEIGHT),
+                ]
+            )
+            if combined.sum() <= 0:
+                continue
+
+            priors_by_game[(seriesid, gameid)] = torch.tensor(
+                combined * self.early_blue_ban_priors_strength,
+                dtype=torch.float32,
+            )
+
+        return priors_by_game
+
     def _preprocess_samples(self):
         samples = []
         grouped_games = self.data.groupby(["seriesid", "gameid"])
@@ -747,6 +1036,9 @@ class DraftDataset(Dataset):
                     )
                     continue
 
+                is_early_blue_ban = (
+                    side == "blue" and action_type == "ban" and action_number <= EARLY_BLUE_BAN_MAX
+                )
                 samples.append(
                     {
                         "draft_sequence": draft_sequence.copy(),
@@ -764,6 +1056,7 @@ class DraftDataset(Dataset):
                         "game_date_value": game_date_value,
                         "league_index": self._league_index(row.get("league")),
                         "team_index": self._team_index(row.get("teamid")),
+                        "is_early_blue_ban": is_early_blue_ban,
                     }
                 )
 
