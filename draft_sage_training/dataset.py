@@ -462,6 +462,8 @@ class DraftDataset(Dataset):
             "team_index": torch.tensor(row.get("team_index", self.unknown_team_index), dtype=torch.long),
         }
         champion_priors = None
+        if self.champion_priors_by_patch is not None or self.early_blue_ban_priors_enabled:
+            champion_priors = self.default_champion_priors
         if self.champion_priors_by_patch is not None:
             priors_key = row.get("priors_key") or row.get("patch")
             champion_priors = self.champion_priors_by_patch.get(
