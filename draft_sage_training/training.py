@@ -207,11 +207,6 @@ def build_dataset_meta(config: TrainingConfig) -> dict:
             "dir": config.role_priors_dir,
             "strength": config.role_priors_strength,
         }
-    if config.early_blue_ban_priors:
-        dataset["early_blue_ban_priors"] = {
-            "strength": config.early_blue_ban_priors_strength,
-            "window_days": config.team_priors_window_days,
-        }
     if config.patch_window:
         dataset["patch_window"] = config.patch_window
     if config.patches:
@@ -308,9 +303,6 @@ def train(config: TrainingConfig) -> int:
         champion_priors_time_buckets=config.champion_priors_time_buckets,
         role_priors_dir=config.role_priors_dir,
         role_priors_strength=config.role_priors_strength,
-        early_blue_ban_priors=config.early_blue_ban_priors,
-        early_blue_ban_priors_strength=config.early_blue_ban_priors_strength,
-        team_priors_window_days=config.team_priors_window_days,
         use_league_team_embeddings=config.use_league_team_embeddings,
     )
     if len(dataset) == 0:
@@ -438,8 +430,6 @@ def train(config: TrainingConfig) -> int:
         feature_set.append("champion_priors")
     if config.role_priors_dir:
         feature_set.append("role_priors")
-    if config.early_blue_ban_priors:
-        feature_set.append("early_blue_ban_priors")
     metrics_payload = {
         "train_samples": len(train_dataset),
         "val_samples": len(val_dataset),
@@ -454,9 +444,6 @@ def train(config: TrainingConfig) -> int:
     }
     if config.role_priors_dir:
         metrics_payload["role_priors_strength"] = config.role_priors_strength
-    if config.early_blue_ban_priors:
-        metrics_payload["early_blue_ban_priors_strength"] = config.early_blue_ban_priors_strength
-        metrics_payload["team_priors_window_days"] = config.team_priors_window_days
     write_json(metrics_path, metrics_payload)
 
     summary_payload = build_summary_payload(

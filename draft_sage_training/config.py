@@ -15,9 +15,6 @@ class TrainingConfig:
     champion_priors_time_buckets: int
     role_priors_dir: Optional[str]
     role_priors_strength: float
-    early_blue_ban_priors: bool
-    early_blue_ban_priors_strength: float
-    team_priors_window_days: int
     use_league_team_embeddings: bool
     train_split: float
     val_split: float
