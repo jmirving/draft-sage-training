@@ -17,6 +17,7 @@ from torch.utils.data import DataLoader, Subset
 
 from draft_sage_training.config import TrainingConfig
 from draft_sage_training.dataset import DraftDataset
+from draft_sage_training.inspection import build_inspection_bundle
 from draft_sage_training.model import DraftMLP
 from draft_sage_training.utils.draft_order import DRAFT_ORDER
 
@@ -228,6 +229,8 @@ def build_summary_payload(
     metrics: dict | None,
     samples: dict | None,
     paths: dict | None,
+    inspection_status: str | None = None,
+    inspection_error: str | None = None,
     progress_epoch: int | None = None,
 ) -> dict:
     progress = None
@@ -246,6 +249,8 @@ def build_summary_payload(
         "progress": progress,
         "metrics": metrics,
         "samples": samples,
+        "inspection_status": inspection_status,
+        "inspection_error": inspection_error,
         "paths": paths,
     }
 
@@ -353,6 +358,8 @@ def train(config: TrainingConfig) -> int:
             "val": len(val_dataset),
             "test": len(test_dataset),
         },
+        inspection_status="missing",
+        inspection_error=None,
         paths=base_paths,
         progress_epoch=0,
     )
@@ -446,6 +453,26 @@ def train(config: TrainingConfig) -> int:
         metrics_payload["role_priors_strength"] = config.role_priors_strength
     write_json(metrics_path, metrics_payload)
 
+    inspection_status = "missing"
+    inspection_error = None
+    inspection_path = run_dir / "inspection-samples.json"
+    inspection_paths = dict(base_paths)
+    try:
+        inspection_bundle = build_inspection_bundle(
+            run_id=run_identifier,
+            model=model,
+            dataset=dataset,
+            candidate_indices=test_indices,
+            device=device,
+        )
+        write_json(inspection_path, inspection_bundle)
+        inspection_status = "available"
+        inspection_paths["inspection_samples"] = inspection_path.name
+    except Exception as exc:  # pragma: no cover - logging guard
+        inspection_status = "failed"
+        inspection_error = str(exc)
+        logging.exception("Failed to generate inspection samples.")
+
     summary_payload = build_summary_payload(
         run_identifier=run_identifier,
         status="completed",
@@ -466,7 +493,9 @@ def train(config: TrainingConfig) -> int:
             "val": len(val_dataset),
             "test": len(test_dataset),
         },
-        paths=base_paths,
+        inspection_status=inspection_status,
+        inspection_error=inspection_error,
+        paths=inspection_paths,
         progress_epoch=config.epochs,
     )
     write_json(summary_path, summary_payload)

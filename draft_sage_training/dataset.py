@@ -714,6 +714,8 @@ class DraftDataset(Dataset):
                             if sanitized_pick:
                                 fearless_picks.add(sanitized_pick)
 
+            game_number = blue_row.get("game") if "game" in blue_row else None
+            series_used_champions = sorted(fearless_picks)
             used_champions = set(fearless_picks)
             draft_sequence = [0] * self.draft_features
 
@@ -754,16 +756,19 @@ class DraftDataset(Dataset):
                         "already_picked_or_banned": set(used_champions),
                         "seriesid": seriesid,
                         "gameid": gameid,
+                        "game_number": game_number,
                         "patch_index": patch_index,
                         "patch": patch_value,
                         "priors_key": priors_key,
                         "action_type": action_type,
                         "side": side,
                         "event_index": event_index,
+                        "league": row.get("league"),
                         "league_key": league_key,
                         "game_date_value": game_date_value,
                         "league_index": self._league_index(row.get("league")),
                         "team_index": self._team_index(row.get("teamid")),
+                        "series_used_champions": series_used_champions,
                     }
                 )
 
