@@ -265,6 +265,7 @@ def main() -> None:
         inspection_path_value = paths.get("inspection_samples")
         inspection_source = resolve_source_path(run_dir, inspection_path_value) if inspection_path_value else None
 
+        target_run_dir = data_dir / "runs" / run_id
         if run_id in inspection_keep and inspection_source and inspection_source.exists():
             inspection_target = data_dir / "runs" / run_id / Path(inspection_path_value).name
             copy_file(inspection_source, inspection_target, args.dry_run)
@@ -272,6 +273,13 @@ def main() -> None:
             summary["inspection_error"] = None
             paths["inspection_samples"] = Path(inspection_path_value).name
         else:
+            if inspection_path_value:
+                stale_path = target_run_dir / Path(inspection_path_value).name
+                if stale_path.exists():
+                    if args.dry_run:
+                        logging.info("Would remove pruned inspection bundle: %s", stale_path)
+                    else:
+                        stale_path.unlink()
             paths.pop("inspection_samples", None)
             summary["inspection_status"] = "missing"
             reason = "Inspection bundle pruned on publish."
@@ -283,7 +291,6 @@ def main() -> None:
 
         summary["paths"] = paths
 
-        target_run_dir = data_dir / "runs" / run_id
         write_json(target_run_dir / "summary.json", summary, args.dry_run)
 
         for key in ("config", "metrics"):
