@@ -131,6 +131,22 @@ python scripts/build_combined_index.py \
   --root /path/to/server/root
 ```
 
+## Publish training data for the UI
+Use the publish helper to copy sanitized artifacts into
+`draft-sage-training-data/public/training`:
+
+```
+python scripts/publish_training_data.py \
+  --index /path/to/experiment-index.json \
+  --data-dir /path/to/draft-sage-training-data/public/training
+```
+
+Notes:
+- Copies `summary.json`, `config.json`, `metrics.json`, and inspection samples.
+- Strips local filesystem paths from dataset metadata.
+- Prunes inspection bundles to the newest 10 runs by default.
+- Writes a single combined `experiment-index.json` for the UI.
+
 ## Scripts
 - `scripts/train.py`: training entrypoint (wraps `draft_sage_training.cli`).
 - `scripts/diagnostics.py`: split/mask/leakage sanity checks.
