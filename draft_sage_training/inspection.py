@@ -75,6 +75,25 @@ def _champion_name(dataset: DraftDataset, champion_index: int) -> str:
     return dataset.idx2champion.get(champion_index, "UNKNOWN")
 
 
+def _is_nan(value) -> bool:
+    return isinstance(value, (float, np.floating)) and np.isnan(value)
+
+
+def _to_int(value):
+    if value is None or _is_nan(value):
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _to_str(value):
+    if value is None or _is_nan(value):
+        return None
+    return str(value)
+
+
 def _format_draft_sequence(dataset: DraftDataset, draft_sequence: list[int]) -> list[str | int]:
     formatted: list[str | int] = []
     for champ_index in draft_sequence:
@@ -148,11 +167,11 @@ def build_inspection_bundle(
 
             samples_payload.append(
                 {
-                    "gameid": row.get("gameid"),
-                    "seriesid": row.get("seriesid"),
-                    "game_number": row.get("game_number"),
-                    "league": row.get("league") or row.get("league_key"),
-                    "patch": row.get("patch"),
+                    "gameid": _to_str(row.get("gameid")),
+                    "seriesid": _to_str(row.get("seriesid")),
+                    "game_number": _to_int(row.get("game_number")),
+                    "league": _to_str(row.get("league") or row.get("league_key")),
+                    "patch": _to_str(row.get("patch")),
                     "side": row.get("side"),
                     "action_type": row.get("action_type"),
                     "slot": int(row.get("event_index", 0)) + 1,
