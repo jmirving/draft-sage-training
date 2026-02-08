@@ -148,11 +148,16 @@ def normalize_manifest_path(path_value: str) -> str:
     return str(Path(*safe_parts))
 
 
-def resolve_source_path(base_dir: Path, path_value: str | None) -> Path | None:
+def resolve_source_path(base_dir: Path, path_value: str | None, workspace_root: Path) -> Path | None:
     if not path_value:
         return None
     candidate = Path(path_value)
     if candidate.is_absolute():
+        if candidate.exists():
+            return candidate
+        if path_value.startswith("/.tmp/"):
+            fallback = workspace_root / ".tmp" / path_value.removeprefix("/.tmp/")
+            return fallback
         return candidate
     return (base_dir / candidate).resolve()
 
@@ -226,6 +231,7 @@ def main() -> None:
 
     index_paths = [Path(path).resolve() for path in args.index]
     data_dir = Path(args.data_dir).resolve()
+    workspace_root = Path(__file__).resolve().parents[2]
     runs: list[RunBundle] = []
     index_payloads: list[dict] = []
 
@@ -242,7 +248,7 @@ def main() -> None:
             if not summary_path_value:
                 logging.warning("Run %s missing summary_path in %s", run_entry.get("run_id"), index_path)
                 continue
-            summary_path = resolve_source_path(index_path.parent, summary_path_value)
+            summary_path = resolve_source_path(index_path.parent, summary_path_value, workspace_root)
             if summary_path is None or not summary_path.exists():
                 logging.warning("Missing summary file: %s", summary_path)
                 continue
@@ -284,7 +290,7 @@ def main() -> None:
             manifest_path = dataset.get("manifest_path")
             if isinstance(manifest_path, str):
                 normalized_manifest = normalize_manifest_path(manifest_path)
-                manifest_source = resolve_source_path(bundle.index_path.parent, manifest_path)
+                manifest_source = resolve_source_path(bundle.index_path.parent, manifest_path, workspace_root)
                 manifest_target = data_dir / normalized_manifest
                 if copy_file(manifest_source, manifest_target, args.dry_run):
                     dataset["manifest_path"] = normalized_manifest
@@ -300,7 +306,11 @@ def main() -> None:
         paths.pop("model", None)
 
         inspection_path_value = paths.get("inspection_samples")
-        inspection_source = resolve_source_path(run_dir, inspection_path_value) if inspection_path_value else None
+        inspection_source = (
+            resolve_source_path(run_dir, inspection_path_value, workspace_root)
+            if inspection_path_value
+            else None
+        )
 
         target_run_dir = data_dir / "runs" / run_id
         if run_id in inspection_keep and inspection_source and inspection_source.exists():
@@ -331,7 +341,7 @@ def main() -> None:
         write_json(target_run_dir / "summary.json", summary, args.dry_run)
 
         for key in ("config", "metrics"):
-            source = resolve_source_path(run_dir, paths.get(key))
+            source = resolve_source_path(run_dir, paths.get(key), workspace_root)
             if source:
                 copy_file(source, target_run_dir / Path(paths.get(key)).name, args.dry_run)
 
