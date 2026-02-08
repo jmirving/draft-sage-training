@@ -32,6 +32,13 @@ class TrainingConfig:
     dataset_label: Optional[str]
     update_index: bool
     log_level: str
+    publish_data_dir: Optional[str]
+    publish_indexes: Optional[Sequence[str]]
+    publish_on_start: bool
+    publish_on_finish: bool
+    publish_commit: bool
+    publish_push: bool
+    inspection_keep: int
 
 
 def normalize_patches(patches: Optional[Iterable[str]]) -> Optional[Sequence[str]]:

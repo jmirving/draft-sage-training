@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 import logging
 import math
+import subprocess
+import sys
 import time
 from datetime import datetime, timezone
 from dataclasses import asdict
@@ -280,6 +282,49 @@ def update_experiment_index(index_path: Path, run_entry: dict) -> None:
     write_json(index_path, index_data)
 
 
+def publish_training_data(
+    *,
+    config: TrainingConfig,
+    stage: str,
+    run_identifier: str,
+    dry_run: bool = False,
+) -> None:
+    if stage == "start" and not config.publish_on_start:
+        return
+    if stage == "finish" and not config.publish_on_finish:
+        return
+
+    index_paths = config.publish_indexes
+    if not index_paths:
+        index_paths = [str(Path(config.output_dir) / "experiment-index.json")]
+
+    command = [
+        sys.executable,
+        str(Path(__file__).resolve().parents[1] / "scripts" / "publish_training_data.py"),
+    ]
+    for index_path in index_paths:
+        command.extend(["--index", index_path])
+
+    if config.publish_data_dir:
+        command.extend(["--data-dir", config.publish_data_dir])
+    command.extend(["--inspection-keep", str(config.inspection_keep)])
+
+    if config.publish_commit:
+        command.append("--commit")
+    if config.publish_push:
+        command.append("--push")
+
+    commit_message = f"Publish training data ({stage}) {run_identifier}"
+    if config.publish_commit or config.publish_push:
+        command.extend(["--message", commit_message])
+
+    if dry_run:
+        command.append("--dry-run")
+
+    logging.info("Publishing training data (%s)...", stage)
+    subprocess.run(command, check=True)
+
+
 def train(config: TrainingConfig) -> int:
     if config.patch_window and config.patches:
         raise ValueError("Provide either patch_window or patches, not both.")
@@ -364,7 +409,8 @@ def train(config: TrainingConfig) -> int:
         progress_epoch=0,
     )
     write_json(summary_path, running_summary)
-    if config.update_index:
+    should_update_index = config.update_index or config.publish_on_start or config.publish_on_finish
+    if should_update_index:
         index_path = Path(config.output_dir) / "experiment-index.json"
         run_entry = {
             "run_id": run_identifier,
@@ -377,6 +423,14 @@ def train(config: TrainingConfig) -> int:
         }
         update_experiment_index(index_path, run_entry)
         logging.info("Marked run as running in %s", index_path)
+    else:
+        logging.info("Skipping experiment index update.")
+
+    if config.publish_on_start:
+        try:
+            publish_training_data(config=config, stage="start", run_identifier=run_identifier)
+        except Exception:
+            logging.exception("Publish-on-start failed.")
 
     model = DraftMLP(
         feature_dims={
@@ -504,7 +558,7 @@ def train(config: TrainingConfig) -> int:
     logging.info("Saved metrics to %s", metrics_path)
     logging.info("Saved summary to %s", summary_path)
 
-    if config.update_index:
+    if should_update_index:
         index_path = Path(config.output_dir) / "experiment-index.json"
         run_entry = {
             "run_id": run_identifier,
@@ -522,4 +576,9 @@ def train(config: TrainingConfig) -> int:
         logging.info("Updated experiment index at %s", index_path)
     else:
         logging.info("Skipping experiment index update.")
+    if config.publish_on_finish:
+        try:
+            publish_training_data(config=config, stage="finish", run_identifier=run_identifier)
+        except Exception:
+            logging.exception("Publish-on-finish failed.")
     return 0

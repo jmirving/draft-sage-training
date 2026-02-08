@@ -144,6 +144,46 @@ def build_parser() -> argparse.ArgumentParser:
         help="Skip updating experiment-index.json.",
     )
     parser.add_argument(
+        "--publish-data",
+        action="store_true",
+        help="Publish run metadata to the data host on start and finish (commit + push).",
+    )
+    parser.add_argument(
+        "--publish-on-start",
+        action="store_true",
+        help="Publish a running marker at the start of training.",
+    )
+    parser.add_argument(
+        "--publish-on-finish",
+        action="store_true",
+        help="Publish completed artifacts after training finishes.",
+    )
+    parser.add_argument(
+        "--publish-data-dir",
+        help="Target data host training directory.",
+    )
+    parser.add_argument(
+        "--publish-index",
+        action="append",
+        help="Experiment index path(s) to publish (repeatable). Defaults to output-dir index.",
+    )
+    parser.add_argument(
+        "--publish-commit",
+        action="store_true",
+        help="Commit data host changes after publishing.",
+    )
+    parser.add_argument(
+        "--publish-push",
+        action="store_true",
+        help="Push data host changes after committing.",
+    )
+    parser.add_argument(
+        "--inspection-keep",
+        type=int,
+        default=10,
+        help="Number of newest inspection bundles to keep on the data host.",
+    )
+    parser.add_argument(
         "--log-level",
         default="INFO",
         choices=["CRITICAL", "ERROR", "WARNING", "INFO", "DEBUG"],
@@ -155,6 +195,12 @@ def build_parser() -> argparse.ArgumentParser:
 def parse_args(argv: list[str] | None = None) -> TrainingConfig:
     parser = build_parser()
     args = parser.parse_args(argv)
+    publish_on_start = args.publish_on_start or args.publish_data
+    publish_on_finish = args.publish_on_finish or args.publish_data
+    publish_commit = args.publish_commit or args.publish_data
+    publish_push = args.publish_push or args.publish_data
+    if publish_push and not publish_commit:
+        publish_commit = True
     return TrainingConfig(
         input_dir=args.input_dir,
         output_dir=args.output_dir,
@@ -182,6 +228,13 @@ def parse_args(argv: list[str] | None = None) -> TrainingConfig:
         dataset_label=args.dataset_label,
         update_index=not args.no_index_update,
         log_level=args.log_level,
+        publish_data_dir=args.publish_data_dir,
+        publish_indexes=args.publish_index,
+        publish_on_start=publish_on_start,
+        publish_on_finish=publish_on_finish,
+        publish_commit=publish_commit,
+        publish_push=publish_push,
+        inspection_keep=args.inspection_keep,
     )
 
 

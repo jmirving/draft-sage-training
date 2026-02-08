@@ -7,6 +7,7 @@ import argparse
 import json
 import logging
 import shutil
+import subprocess
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -48,6 +49,20 @@ def parse_args() -> argparse.Namespace:
         type=int,
         default=10,
         help="Number of newest inspection bundles to keep on the data host.",
+    )
+    parser.add_argument(
+        "--commit",
+        action="store_true",
+        help="Commit changes in the data host repo after publishing.",
+    )
+    parser.add_argument(
+        "--push",
+        action="store_true",
+        help="Push data host repo changes after committing.",
+    )
+    parser.add_argument(
+        "--message",
+        help="Commit message override when using --commit.",
     )
     parser.add_argument(
         "--dry-run",
@@ -183,6 +198,28 @@ def build_baseline_pointers(index_payloads: list[dict]) -> dict:
     return chosen
 
 
+def find_git_root(path: Path) -> Path | None:
+    current = path.resolve()
+    for parent in [current, *current.parents]:
+        if (parent / ".git").exists():
+            return parent
+    return None
+
+
+def run_git(command: list[str], cwd: Path, dry_run: bool) -> subprocess.CompletedProcess | None:
+    if dry_run:
+        logging.info("Would run: %s (cwd=%s)", " ".join(command), cwd)
+        return None
+    return subprocess.run(command, cwd=str(cwd), check=True, capture_output=True, text=True)
+
+
+def has_git_changes(cwd: Path, dry_run: bool) -> bool:
+    if dry_run:
+        return True
+    result = run_git(["git_local", "status", "--porcelain"], cwd, dry_run=False)
+    return bool(result.stdout.strip())
+
+
 def main() -> None:
     args = parse_args()
     logging.basicConfig(level=getattr(logging, args.log_level))
@@ -307,6 +344,24 @@ def main() -> None:
     combined_index.update({k: v for k, v in baseline.items() if v})
 
     write_json(data_dir / "experiment-index.json", combined_index, args.dry_run)
+
+    if args.commit or args.push:
+        git_root = find_git_root(data_dir)
+        if not git_root:
+            raise RuntimeError(f"Unable to locate git root for {data_dir}")
+
+        if args.push:
+            args.commit = True
+
+        if has_git_changes(git_root, args.dry_run):
+            run_git(["git_local", "add", "-A"], git_root, args.dry_run)
+            message = args.message or "Publish training data"
+            run_git(["git_local", "commit", "-m", message], git_root, args.dry_run)
+            if args.push:
+                run_git(["git_net", "pull", "--rebase"], git_root, args.dry_run)
+                run_git(["git_net", "push"], git_root, args.dry_run)
+        else:
+            logging.info("No data host changes detected; skipping commit/push.")
 
     logging.info("Publish complete -> %s", data_dir)
 

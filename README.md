@@ -147,6 +147,23 @@ Notes:
 - Prunes inspection bundles to the newest 10 runs by default.
 - Writes a single combined `experiment-index.json` for the UI.
 
+### End-to-end publish workflow (automatic)
+To publish at the start and end of training (commit + push to the data repo),
+run training with `--publish-data`:
+
+```
+python scripts/train.py \
+  --input-dir /path/to/prodata \
+  --output-dir ./artifacts \
+  --publish-data \
+  --publish-data-dir /home/jirving/projects/lol/draft-sage-training-data/public/training
+```
+
+`--publish-data` enables:
+- publish-on-start (running marker)
+- publish-on-finish (completed artifacts)
+- commit + push to the data host repo
+
 ## Scripts
 - `scripts/train.py`: training entrypoint (wraps `draft_sage_training.cli`).
 - `scripts/diagnostics.py`: split/mask/leakage sanity checks.
