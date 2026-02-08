@@ -291,7 +291,7 @@ def main() -> None:
                 else:
                     logging.warning("Manifest missing for run %s: %s", run_id, manifest_path)
         summary["dataset"] = dataset
-        if not run_entry.get("dataset"):
+        if dataset is not None:
             run_entry["dataset"] = dataset
 
         combined_runs[run_id] = run_entry
