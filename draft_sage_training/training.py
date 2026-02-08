@@ -294,14 +294,18 @@ def publish_training_data(
     if stage == "finish" and not config.publish_on_finish:
         return
 
-    index_paths = config.publish_indexes
-    if not index_paths:
-        index_paths = [str(Path(config.output_dir) / "experiment-index.json")]
+    index_paths = list(config.publish_indexes or [])
+    output_index = str(Path(config.output_dir) / "experiment-index.json")
+    if output_index not in index_paths:
+        index_paths.append(output_index)
 
     command = [
         sys.executable,
         str(Path(__file__).resolve().parents[1] / "scripts" / "publish_training_data.py"),
     ]
+    use_defaults = config.publish_indexes is None
+    if use_defaults:
+        command.append("--use-default-indexes")
     for index_path in index_paths:
         command.extend(["--index", index_path])
 

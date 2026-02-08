@@ -166,6 +166,12 @@ python scripts/publish_training_data.py \
   --data-dir /path/to/draft-sage-training-data/public/training
 ```
 
+Defaults: if no `--index` is provided (or `--use-default-indexes` is set), the
+publisher merges:
+- `.tmp/training-clean-2025-all/experiment-index.json`
+- `.tmp/training-clean-2025-seriesid-index/experiment-index.json`
+- `.tmp/training-autopublish/experiment-index.json`
+
 Notes:
 - Copies `summary.json`, `config.json`, `metrics.json`, and inspection samples.
 - Strips local filesystem paths from dataset metadata.

@@ -29,6 +29,14 @@ def default_data_dir() -> Path:
     return repo_root.parent / "draft-sage-training-data" / "public" / "training"
 
 
+def default_index_candidates(workspace_root: Path) -> list[Path]:
+    return [
+        workspace_root / ".tmp" / "training-clean-2025-all" / "experiment-index.json",
+        workspace_root / ".tmp" / "training-clean-2025-seriesid-index" / "experiment-index.json",
+        workspace_root / ".tmp" / "training-autopublish" / "experiment-index.json",
+    ]
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Publish experiment index + run metadata into draft-sage-training-data.",
@@ -36,8 +44,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--index",
         action="append",
-        required=True,
         help="Path to an experiment-index.json file (repeatable).",
+    )
+    parser.add_argument(
+        "--use-default-indexes",
+        action="store_true",
+        help="Include the default workspace index list when publishing.",
     )
     parser.add_argument(
         "--data-dir",
@@ -229,9 +241,19 @@ def main() -> None:
     args = parse_args()
     logging.basicConfig(level=getattr(logging, args.log_level))
 
-    index_paths = [Path(path).resolve() for path in args.index]
+    raw_indexes = args.index or []
+    index_paths = [Path(path).resolve() for path in raw_indexes if path]
     data_dir = Path(args.data_dir).resolve()
     workspace_root = Path(__file__).resolve().parents[2]
+    if args.use_default_indexes or not index_paths:
+        for candidate in default_index_candidates(workspace_root):
+            if candidate.exists():
+                index_paths.append(candidate.resolve())
+    # De-dupe while preserving order.
+    seen = set()
+    index_paths = [p for p in index_paths if not (p in seen or seen.add(p))]
+    if not index_paths:
+        raise ValueError("No experiment-index.json files found to publish.")
     runs: list[RunBundle] = []
     index_payloads: list[dict] = []
 
