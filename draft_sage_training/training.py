@@ -357,7 +357,8 @@ def train(config: TrainingConfig) -> int:
         champion_priors_time_buckets=config.champion_priors_time_buckets,
         role_priors_dir=config.role_priors_dir,
         role_priors_strength=config.role_priors_strength,
-        use_league_team_embeddings=config.use_league_team_embeddings,
+        use_league_embeddings=config.use_league_embeddings,
+        use_team_embeddings=config.use_team_embeddings,
     )
     if len(dataset) == 0:
         logging.error("No training samples available.")
@@ -489,8 +490,10 @@ def train(config: TrainingConfig) -> int:
         "side",
         "event_index",
     ]
-    if config.use_league_team_embeddings:
-        feature_set.extend(["league", "team"])
+    if config.use_league_embeddings:
+        feature_set.append("league")
+    if config.use_team_embeddings:
+        feature_set.append("team")
     if config.champion_priors_dir:
         feature_set.append("champion_priors")
     if config.role_priors_dir:

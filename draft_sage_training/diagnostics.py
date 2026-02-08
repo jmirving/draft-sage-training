@@ -230,6 +230,16 @@ def build_parser() -> argparse.ArgumentParser:
         help="Disable league/team embeddings (use unknown indices only).",
     )
     parser.add_argument(
+        "--no-league-embeddings",
+        action="store_true",
+        help="Disable league embeddings (use unknown league index only).",
+    )
+    parser.add_argument(
+        "--no-team-embeddings",
+        action="store_true",
+        help="Disable team embeddings (use unknown team index only).",
+    )
+    parser.add_argument(
         "--train-split",
         type=float,
         default=0.8,
@@ -358,6 +368,11 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def build_config(args: argparse.Namespace) -> TrainingConfig:
+    use_league_embeddings = not args.no_league_embeddings
+    use_team_embeddings = not args.no_team_embeddings
+    if args.no_league_team_embeddings:
+        use_league_embeddings = False
+        use_team_embeddings = False
     return TrainingConfig(
         input_dir=args.input_dir,
         output_dir=args.output_dir,
@@ -368,7 +383,8 @@ def build_config(args: argparse.Namespace) -> TrainingConfig:
         champion_priors_time_buckets=args.champion_priors_time_buckets,
         role_priors_dir=args.role_priors_dir,
         role_priors_strength=args.role_priors_strength,
-        use_league_team_embeddings=not args.no_league_team_embeddings,
+        use_league_embeddings=use_league_embeddings,
+        use_team_embeddings=use_team_embeddings,
         train_split=args.train_split,
         val_split=args.val_split,
         test_split=args.test_split,
@@ -423,7 +439,8 @@ def run_diagnostics(config: TrainingConfig, diag_config: DiagnosticConfig) -> in
         champion_priors_time_buckets=config.champion_priors_time_buckets,
         role_priors_dir=config.role_priors_dir,
         role_priors_strength=config.role_priors_strength,
-        use_league_team_embeddings=config.use_league_team_embeddings,
+        use_league_embeddings=config.use_league_embeddings,
+        use_team_embeddings=config.use_team_embeddings,
     )
     if len(dataset) == 0:
         logging.error("No training samples available.")

@@ -76,6 +76,8 @@ pip install -r requirements.txt
 - `--role-priors-dir`: per-patch role priors directory.
 - `--role-priors-strength`: scale factor for role priors logit bias.
 - `--no-league-team-embeddings`: disable league/team embeddings.
+- `--no-league-embeddings`: disable league embeddings only.
+- `--no-team-embeddings`: disable team embeddings only.
 - `--split-strategy`: `seriesid` (default), `gameid`, or `random`.
 - `--patch-window`: include only the most recent N patches.
 - `--patch`: repeatable explicit patch filter.
@@ -124,6 +126,7 @@ Then pass `--champion-eligibility-path data/eligibility/champion-eligibility.jso
 to training or diagnostics runs.
 If a league is missing from the artifact, eligibility gating is skipped for that league.
 Add `--no-league-team-embeddings` to disable league/team embeddings for a run.
+Use `--no-league-embeddings` or `--no-team-embeddings` to toggle them independently.
 Use `--split-strategy` (`seriesid` default) to avoid leakage across games.
 
 ## Diagnostics (sanity checks)

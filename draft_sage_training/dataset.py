@@ -327,7 +327,8 @@ class DraftDataset(Dataset):
         champion_priors_time_buckets: int = 1,
         role_priors_dir: Optional[str] = None,
         role_priors_strength: float = 1.0,
-        use_league_team_embeddings: bool = True,
+        use_league_embeddings: bool = True,
+        use_team_embeddings: bool = True,
     ):
         if teams_df is None:
             if input_dir is None:
@@ -366,20 +367,23 @@ class DraftDataset(Dataset):
                 self.champion2idx,
             )
 
-        self.use_league_team_embeddings = use_league_team_embeddings
+        self.use_league_embeddings = use_league_embeddings
+        self.use_team_embeddings = use_team_embeddings
         self.unknown_league_index = 0
         self.unknown_team_index = 0
-        if self.use_league_team_embeddings:
+        if self.use_league_embeddings:
             self.league_values, self.league_to_index = self._build_category_index("league")
-            self.team_values, self.team_to_index = self._build_category_index("teamid")
             self.num_leagues = len(self.league_to_index) + 1
-            self.num_teams = len(self.team_to_index) + 1
         else:
             self.league_values = []
             self.league_to_index = {}
+            self.num_leagues = 1
+        if self.use_team_embeddings:
+            self.team_values, self.team_to_index = self._build_category_index("teamid")
+            self.num_teams = len(self.team_to_index) + 1
+        else:
             self.team_values = []
             self.team_to_index = {}
-            self.num_leagues = 1
             self.num_teams = 1
 
         self.champion_priors_strength = champion_priors_strength
@@ -554,7 +558,7 @@ class DraftDataset(Dataset):
         return unique_values, index
 
     def _league_index(self, value: object) -> int:
-        if not self.use_league_team_embeddings:
+        if not self.use_league_embeddings:
             return self.unknown_league_index
         normalized = normalize_category(value)
         if not normalized:
@@ -562,7 +566,7 @@ class DraftDataset(Dataset):
         return self.league_to_index.get(normalized, self.unknown_league_index)
 
     def _team_index(self, value: object) -> int:
-        if not self.use_league_team_embeddings:
+        if not self.use_team_embeddings:
             return self.unknown_team_index
         normalized = normalize_category(value)
         if not normalized:
