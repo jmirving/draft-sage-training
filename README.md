@@ -2,6 +2,15 @@
 
 Training pipelines and experiment tracking for DraftSage models.
 
+## Setup
+Create a virtualenv and install dependencies:
+
+```
+python3 -m venv .venv
+. .venv/bin/activate
+pip install -r requirements.txt
+```
+
 ## Scope
 - Train models using processed Oracle's Elixir data from `lol-pro-data-processor`
 - Own dataset aggregation and feature engineering for training
@@ -79,6 +88,22 @@ Training pipelines and experiment tracking for DraftSage models.
 python scripts/train.py --input-dir /path/to/prodata --output-dir ./artifacts \
   --champion-mapping-path /path/to/champion-mapping.json
 ```
+
+### Quick run (auto-publish)
+The wrapper script bootstraps dependencies, resolves default data paths,
+and publishes to the data host on start/finish:
+
+```
+./scripts/run_training.sh
+```
+
+Defaults:
+- `EPOCHS=1` (set `EPOCHS=20` for a full run)
+- `OUTPUT_DIR=../.tmp/training-autopublish`
+- `PUBLISH_DATA_DIR=../draft-sage-training-data/public/training`
+
+Override paths by setting environment variables:
+`INPUT_DIR`, `CHAMPION_MAPPING_PATH`, `OUTPUT_DIR`, `PUBLISH_DATA_DIR`.
 
 Optional: add per-patch champion priors as a logit bias:
 ```
