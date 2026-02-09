@@ -46,15 +46,9 @@ Notes:
 | `ROLE_DISTRIBUTION_BIAS_DIR` | `data/weights/role-priors` | Role-distribution bias artifact directory. |
 | `ROLE_DISTRIBUTION_BIAS_STRENGTH_VALUES` | `1.0` | Comma-separated role-distribution bias strengths. |
 
-Legacy aliases still supported in the matrix runner:
-- `SKIP_BASELINE_ON_ON` (inverse of `INCLUDE_ALL_EMBEDDINGS_BASELINE`)
-- `CHAMPION_PRIORS_*` (maps to `DRAFT_FREQUENCY_BIAS_*`)
-- `PICK_BAN_PRIOR_BIAS_*` (maps to `DRAFT_FREQUENCY_BIAS_*`)
-- `ROLE_PRIORS_*` (maps to `ROLE_DISTRIBUTION_BIAS_*`)
-
 Naming note:
 - Matrix runner uses intent-first names (`draft-frequency bias`, `role-distribution bias`).
-- Training CLI keeps historical flag names (`--champion-priors-*`, `--role-priors-*`) for compatibility.
+- Training CLI uses `--champion-priors-*` and `--role-priors-*` flags internally.
 
 ### Common matrix commands
 
