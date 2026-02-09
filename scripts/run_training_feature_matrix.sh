@@ -53,15 +53,24 @@ BASE_DIR="${BASE_DIR:-$ROOT_DIR/../.tmp/embedding-matrix-$(date -u +%Y%m%d_%H%M%
 MAX_PARALLEL="${MAX_PARALLEL:-3}"
 DRY_RUN="${DRY_RUN:-0}"
 
-# Matrix axes
-# Defaults preserve the old "next3" behavior (3 runs: off/off, on/off, off/on).
+# Embedding matrix axes.
+# Add new embedding axes by listing them here and defining <AXIS>_EMBEDDINGS_VALUES.
+# Example: EMBEDDING_AXES=league,team,player and PLAYER_EMBEDDINGS_VALUES=off,on
+EMBEDDING_AXES="${EMBEDDING_AXES:-league,team}"
+
+# Per-axis values are read from <UPPERCASE_AXIS>_EMBEDDINGS_VALUES.
+# Defaults below preserve the original 3-run ablation.
 LEAGUE_EMBEDDINGS_VALUES="${LEAGUE_EMBEDDINGS_VALUES:-off,on}"
 TEAM_EMBEDDINGS_VALUES="${TEAM_EMBEDDINGS_VALUES:-off,on}"
-CHAMPION_PRIORS_VALUES="${CHAMPION_PRIORS_VALUES:-off}"
-ROLE_PRIORS_VALUES="${ROLE_PRIORS_VALUES:-off}"
+
+# Skip the all-on embedding baseline when both priors axes are off.
 SKIP_BASELINE_ON_ON="${SKIP_BASELINE_ON_ON:-1}"
 
-# Optional weight sweeps (used when corresponding axis includes "on")
+# Optional priors axes.
+CHAMPION_PRIORS_VALUES="${CHAMPION_PRIORS_VALUES:-off}"
+ROLE_PRIORS_VALUES="${ROLE_PRIORS_VALUES:-off}"
+
+# Optional weight sweeps (used when corresponding priors axis includes "on").
 CHAMPION_PRIORS_DIR="${CHAMPION_PRIORS_DIR:-$ROOT_DIR/data/weights/champion-priors}"
 CHAMPION_PRIORS_STRENGTH_VALUES="${CHAMPION_PRIORS_STRENGTH_VALUES:-1.0}"
 CHAMPION_PRIORS_TIME_BUCKET_VALUES="${CHAMPION_PRIORS_TIME_BUCKET_VALUES:-1}"
@@ -133,34 +142,83 @@ slug() {
   printf '%s' "$value"
 }
 
-declare -a LEAGUE_VALUES=()
-declare -a TEAM_VALUES=()
+axis_to_upper_var_prefix() {
+  local axis="$1"
+  printf '%s' "$axis" | tr '[:lower:]' '[:upper:]'
+}
+
+axis_values_env_name() {
+  local axis="$1"
+  local upper
+  upper="$(axis_to_upper_var_prefix "$axis")"
+  printf '%s_EMBEDDINGS_VALUES' "$upper"
+}
+
+validate_axis_name() {
+  local axis="$1"
+  if [[ ! "$axis" =~ ^[a-z][a-z0-9_]*$ ]]; then
+    echo "Invalid axis name '$axis'. Use lowercase snake_case (example: league, team, player)." >&2
+    exit 1
+  fi
+}
+
+supports_axis_flag() {
+  local axis="$1"
+  local help_text="$2"
+  local flag="--no-${axis}-embeddings"
+  if ! grep -q -- "$flag" <<< "$help_text"; then
+    echo "Axis '$axis' is not supported by train.py (missing flag $flag)." >&2
+    exit 1
+  fi
+}
+
+declare -a EMBEDDING_AXES_ARR=()
+parse_csv "$EMBEDDING_AXES" EMBEDDING_AXES_ARR
+if [[ "${#EMBEDDING_AXES_ARR[@]}" -eq 0 ]]; then
+  echo "EMBEDDING_AXES cannot be empty." >&2
+  exit 1
+fi
+
+TRAIN_HELP="$($PY_BIN "$ROOT_DIR/scripts/train.py" --help 2>&1 || true)"
+
+declare -A AXIS_VALUES_CSV=()
+declare -a AXES_LOG_PARTS=()
+for axis in "${EMBEDDING_AXES_ARR[@]}"; do
+  validate_axis_name "$axis"
+  supports_axis_flag "$axis" "$TRAIN_HELP"
+
+  values_env_name="$(axis_values_env_name "$axis")"
+  values_csv="${!values_env_name:-off,on}"
+
+  declare -a axis_values=()
+  parse_csv "$values_csv" axis_values
+  if [[ "${#axis_values[@]}" -eq 0 ]]; then
+    echo "Axis '$axis' values cannot be empty (env: $values_env_name)." >&2
+    exit 1
+  fi
+  validate_on_off_values "$values_env_name" "${axis_values[@]}"
+
+  AXIS_VALUES_CSV["$axis"]="$values_csv"
+  AXES_LOG_PARTS+=("$axis=[$values_csv]")
+done
+
 declare -a CHAMPION_PRIOR_AXIS=()
 declare -a ROLE_PRIOR_AXIS=()
 declare -a CHAMPION_PRIOR_STRENGTHS=()
 declare -a CHAMPION_PRIOR_TIME_BUCKETS=()
 declare -a ROLE_PRIOR_STRENGTHS=()
 
-parse_csv "$LEAGUE_EMBEDDINGS_VALUES" LEAGUE_VALUES
-parse_csv "$TEAM_EMBEDDINGS_VALUES" TEAM_VALUES
 parse_csv "$CHAMPION_PRIORS_VALUES" CHAMPION_PRIOR_AXIS
 parse_csv "$ROLE_PRIORS_VALUES" ROLE_PRIOR_AXIS
 parse_csv "$CHAMPION_PRIORS_STRENGTH_VALUES" CHAMPION_PRIOR_STRENGTHS
 parse_csv "$CHAMPION_PRIORS_TIME_BUCKET_VALUES" CHAMPION_PRIOR_TIME_BUCKETS
 parse_csv "$ROLE_PRIORS_STRENGTH_VALUES" ROLE_PRIOR_STRENGTHS
 
-validate_on_off_values "LEAGUE_EMBEDDINGS_VALUES" "${LEAGUE_VALUES[@]}"
-validate_on_off_values "TEAM_EMBEDDINGS_VALUES" "${TEAM_VALUES[@]}"
 validate_on_off_values "CHAMPION_PRIORS_VALUES" "${CHAMPION_PRIOR_AXIS[@]}"
 validate_on_off_values "ROLE_PRIORS_VALUES" "${ROLE_PRIOR_AXIS[@]}"
 
-if [[ "${#LEAGUE_VALUES[@]}" -eq 0 || "${#TEAM_VALUES[@]}" -eq 0 ]]; then
-  echo "Matrix axes for league/team embeddings cannot be empty." >&2
-  exit 1
-fi
-
 if [[ "${#CHAMPION_PRIOR_AXIS[@]}" -eq 0 || "${#ROLE_PRIOR_AXIS[@]}" -eq 0 ]]; then
-  echo "Matrix axes for champion/role priors cannot be empty." >&2
+  echo "Priors axes cannot be empty." >&2
   exit 1
 fi
 
@@ -194,6 +252,9 @@ declare -a ACTIVE_NAMES=()
 declare -a FAILED_RUNS=()
 TOTAL_RUNS=0
 
+declare -a CURRENT_EMBED_VALUES=()
+declare -a CURRENT_ARGS=()
+
 run_one() {
   local name="$1"
   shift
@@ -211,8 +272,8 @@ run_one() {
     set -x
     "$PY_BIN" -u "$ROOT_DIR/scripts/train.py" \
       --output-dir "$out_dir" \
-      --display-name "Embeddings: ${name//_/ }" \
-      --description "Ablation: ${name//_/ }" \
+      --display-name "Feature matrix: ${name//_/ }" \
+      --description "Feature matrix ablation: ${name//_/ }" \
       --input-dir "$INPUT_DIR" \
       --champion-mapping-path "$CHAMPION_MAPPING_PATH" \
       --epochs "$EPOCHS" \
@@ -249,86 +310,123 @@ wait_for_all() {
   done
 }
 
-champion_enabled_label() {
-  local value="$1"
-  if [[ "$value" == "on" ]]; then
-    printf 'cp_on'
-  else
-    printf 'cp_off'
-  fi
+all_embeddings_on() {
+  local value
+  for value in "${CURRENT_EMBED_VALUES[@]}"; do
+    if [[ "$value" != "on" ]]; then
+      return 1
+    fi
+  done
+  return 0
 }
 
-role_enabled_label() {
-  local value="$1"
-  if [[ "$value" == "on" ]]; then
-    printf 'rp_on'
-  else
-    printf 'rp_off'
-  fi
+build_embedding_name() {
+  local name=""
+  local i
+  for i in "${!EMBEDDING_AXES_ARR[@]}"; do
+    name+="${EMBEDDING_AXES_ARR[$i]}_${CURRENT_EMBED_VALUES[$i]}_"
+  done
+  name="${name%_}"
+  printf '%s' "$name"
 }
 
-log "BASE_DIR=$BASE_DIR"
-log "MAX_PARALLEL=$MAX_PARALLEL DRY_RUN=$DRY_RUN"
-log "AXES league=[$LEAGUE_EMBEDDINGS_VALUES] team=[$TEAM_EMBEDDINGS_VALUES] champion_priors=[$CHAMPION_PRIORS_VALUES] role_priors=[$ROLE_PRIORS_VALUES]"
+run_leaf_for_current_embeddings() {
+  local champion_priors="$1"
+  local role_priors="$2"
 
-for league in "${LEAGUE_VALUES[@]}"; do
-  for team in "${TEAM_VALUES[@]}"; do
-    for champion_priors in "${CHAMPION_PRIOR_AXIS[@]}"; do
-      for role_priors in "${ROLE_PRIOR_AXIS[@]}"; do
-        if [[ "$SKIP_BASELINE_ON_ON" == "1" && "$league" == "on" && "$team" == "on" && "$champion_priors" == "off" && "$role_priors" == "off" ]]; then
-          continue
-        fi
+  if [[ "$SKIP_BASELINE_ON_ON" == "1" && "$champion_priors" == "off" && "$role_priors" == "off" ]]; then
+    if all_embeddings_on; then
+      return
+    fi
+  fi
 
-        declare -a champion_strength_loop=("na")
-        declare -a champion_bucket_loop=("na")
-        declare -a role_strength_loop=("na")
+  local -a champion_strength_loop=("na")
+  local -a champion_bucket_loop=("na")
+  local -a role_strength_loop=("na")
+
+  if [[ "$champion_priors" == "on" ]]; then
+    champion_strength_loop=("${CHAMPION_PRIOR_STRENGTHS[@]}")
+    champion_bucket_loop=("${CHAMPION_PRIOR_TIME_BUCKETS[@]}")
+  fi
+
+  if [[ "$role_priors" == "on" ]]; then
+    role_strength_loop=("${ROLE_PRIOR_STRENGTHS[@]}")
+  fi
+
+  local champion_strength
+  local champion_bucket
+  local role_strength
+  for champion_strength in "${champion_strength_loop[@]}"; do
+    for champion_bucket in "${champion_bucket_loop[@]}"; do
+      for role_strength in "${role_strength_loop[@]}"; do
+        local run_name
+        run_name="$(build_embedding_name)_cp_${champion_priors}_rp_${role_priors}"
+        local -a run_args=("${CURRENT_ARGS[@]}")
 
         if [[ "$champion_priors" == "on" ]]; then
-          champion_strength_loop=("${CHAMPION_PRIOR_STRENGTHS[@]}")
-          champion_bucket_loop=("${CHAMPION_PRIOR_TIME_BUCKETS[@]}")
+          run_args+=(--champion-priors-dir "$CHAMPION_PRIORS_DIR")
+          run_args+=(--champion-priors-strength "$champion_strength")
+          run_args+=(--champion-priors-time-buckets "$champion_bucket")
+          run_name+="_cps_$(slug "$champion_strength")_cpb_$(slug "$champion_bucket")"
         fi
 
         if [[ "$role_priors" == "on" ]]; then
-          role_strength_loop=("${ROLE_PRIOR_STRENGTHS[@]}")
+          run_args+=(--role-priors-dir "$ROLE_PRIORS_DIR")
+          run_args+=(--role-priors-strength "$role_strength")
+          run_name+="_rps_$(slug "$role_strength")"
         fi
 
-        for champion_strength in "${champion_strength_loop[@]}"; do
-          for champion_bucket in "${champion_bucket_loop[@]}"; do
-            for role_strength in "${role_strength_loop[@]}"; do
-              name="league_${league}_team_${team}_$(champion_enabled_label "$champion_priors")_$(role_enabled_label "$role_priors")"
-              args=()
-
-              if [[ "$league" == "off" ]]; then
-                args+=(--no-league-embeddings)
-              fi
-              if [[ "$team" == "off" ]]; then
-                args+=(--no-team-embeddings)
-              fi
-
-              if [[ "$champion_priors" == "on" ]]; then
-                args+=(--champion-priors-dir "$CHAMPION_PRIORS_DIR")
-                args+=(--champion-priors-strength "$champion_strength")
-                args+=(--champion-priors-time-buckets "$champion_bucket")
-                name+="_cps_$(slug "$champion_strength")_cpb_$(slug "$champion_bucket")"
-              fi
-
-              if [[ "$role_priors" == "on" ]]; then
-                args+=(--role-priors-dir "$ROLE_PRIORS_DIR")
-                args+=(--role-priors-strength "$role_strength")
-                name+="_rps_$(slug "$role_strength")"
-              fi
-
-              run_one "$name" "${args[@]}"
-              while [[ "${#ACTIVE_PIDS[@]}" -ge "$MAX_PARALLEL" ]]; do
-                wait_oldest
-              done
-            done
-          done
+        run_one "$run_name" "${run_args[@]}"
+        while [[ "${#ACTIVE_PIDS[@]}" -ge "$MAX_PARALLEL" ]]; do
+          wait_oldest
         done
       done
     done
   done
-done
+}
+
+walk_embedding_axes() {
+  local idx="$1"
+
+  if [[ "$idx" -ge "${#EMBEDDING_AXES_ARR[@]}" ]]; then
+    local champion_priors
+    local role_priors
+    for champion_priors in "${CHAMPION_PRIOR_AXIS[@]}"; do
+      for role_priors in "${ROLE_PRIOR_AXIS[@]}"; do
+        run_leaf_for_current_embeddings "$champion_priors" "$role_priors"
+      done
+    done
+    return
+  fi
+
+  local axis="${EMBEDDING_AXES_ARR[$idx]}"
+  local values_csv="${AXIS_VALUES_CSV[$axis]}"
+  local -a axis_values=()
+  parse_csv "$values_csv" axis_values
+
+  local value
+  for value in "${axis_values[@]}"; do
+    CURRENT_EMBED_VALUES+=("$value")
+
+    if [[ "$value" == "off" ]]; then
+      CURRENT_ARGS+=("--no-${axis}-embeddings")
+    fi
+
+    walk_embedding_axes $((idx + 1))
+
+    if [[ "$value" == "off" ]]; then
+      unset 'CURRENT_ARGS[${#CURRENT_ARGS[@]}-1]'
+    fi
+    unset 'CURRENT_EMBED_VALUES[${#CURRENT_EMBED_VALUES[@]}-1]'
+  done
+}
+
+log "BASE_DIR=$BASE_DIR"
+log "MAX_PARALLEL=$MAX_PARALLEL DRY_RUN=$DRY_RUN"
+log "EMBEDDING_AXES=[$EMBEDDING_AXES]"
+log "AXES ${AXES_LOG_PARTS[*]} champion_priors=[$CHAMPION_PRIORS_VALUES] role_priors=[$ROLE_PRIORS_VALUES]"
+
+walk_embedding_axes 0
 
 if [[ "$DRY_RUN" != "1" ]]; then
   wait_for_all

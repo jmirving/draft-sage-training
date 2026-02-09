@@ -108,16 +108,23 @@ Override paths by setting environment variables:
 `INPUT_DIR`, `CHAMPION_MAPPING_PATH`, `OUTPUT_DIR`, `PUBLISH_DATA_DIR`.
 
 ### Embedding/weights matrix runs
-Use the matrix helper to sweep league/team embeddings and optional priors:
+Use the matrix helper to sweep embedding axes and optional priors:
 
 ```
 ./scripts/run_training_feature_matrix.sh
 ```
 
-Default behavior preserves the original 3-run embedding ablation:
+Default behavior preserves the original 3-run embedding ablation (`league/team`):
 - `league_off_team_off`
 - `league_on_team_off`
 - `league_off_team_on`
+
+Axis model:
+- `EMBEDDING_AXES=league,team` by default.
+- For each axis in `EMBEDDING_AXES`, set `<UPPERCASE_AXIS>_EMBEDDINGS_VALUES` (`off,on`).
+- Example future axis wiring (once train.py supports `--no-player-embeddings`):
+  - `EMBEDDING_AXES=league,team,player`
+  - `PLAYER_EMBEDDINGS_VALUES=off,on`
 
 Common overrides:
 - full 2x2 embedding matrix (include on/on baseline):
@@ -128,6 +135,8 @@ Common overrides:
   - `CHAMPION_PRIORS_VALUES=on ROLE_PRIORS_VALUES=on CHAMPION_PRIORS_STRENGTH_VALUES=0.5,1.0 ROLE_PRIORS_STRENGTH_VALUES=0.5,1.0 ./scripts/run_training_feature_matrix.sh`
 - dry-run (print resolved matrix only):
   - `DRY_RUN=1 CHAMPION_PRIORS_VALUES=off,on ROLE_PRIORS_VALUES=off,on ./scripts/run_training_feature_matrix.sh`
+
+See `TRAINING_KNOBS.md` for the full knob catalog used by training and the matrix runner.
 
 Optional: add per-patch champion priors as a logit bias:
 ```
