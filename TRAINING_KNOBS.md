@@ -38,21 +38,22 @@ Notes:
 
 | Knob | Default | Purpose |
 |---|---|---|
-| `PICK_BAN_PRIOR_BIAS_VALUES` | `off` | Include pick/ban frequency bias axis (`off/on`). |
+| `DRAFT_FREQUENCY_BIAS_VALUES` | `off` | Include draft-frequency bias axis (`off/on`). |
 | `ROLE_DISTRIBUTION_BIAS_VALUES` | `off` | Include role-distribution bias axis (`off/on`). |
-| `PICK_BAN_PRIOR_BIAS_DIR` | `data/weights/champion-priors` | Pick/ban bias artifact directory. |
-| `PICK_BAN_PRIOR_BIAS_STRENGTH_VALUES` | `1.0` | Comma-separated pick/ban bias strengths. |
-| `PICK_BAN_PRIOR_BIAS_TIME_BUCKET_VALUES` | `1` | Comma-separated pick/ban bias time-bucket values. |
+| `DRAFT_FREQUENCY_BIAS_DIR` | `data/weights/champion-priors` | Draft-frequency bias artifact directory. |
+| `DRAFT_FREQUENCY_BIAS_STRENGTH_VALUES` | `1.0` | Comma-separated draft-frequency bias strengths. |
+| `DRAFT_FREQUENCY_BIAS_TIME_BUCKET_VALUES` | `1` | Comma-separated draft-frequency bias time-bucket values. |
 | `ROLE_DISTRIBUTION_BIAS_DIR` | `data/weights/role-priors` | Role-distribution bias artifact directory. |
 | `ROLE_DISTRIBUTION_BIAS_STRENGTH_VALUES` | `1.0` | Comma-separated role-distribution bias strengths. |
 
 Legacy aliases still supported in the matrix runner:
 - `SKIP_BASELINE_ON_ON` (inverse of `INCLUDE_ALL_EMBEDDINGS_BASELINE`)
-- `CHAMPION_PRIORS_*` (maps to `PICK_BAN_PRIOR_BIAS_*`)
+- `CHAMPION_PRIORS_*` (maps to `DRAFT_FREQUENCY_BIAS_*`)
+- `PICK_BAN_PRIOR_BIAS_*` (maps to `DRAFT_FREQUENCY_BIAS_*`)
 - `ROLE_PRIORS_*` (maps to `ROLE_DISTRIBUTION_BIAS_*`)
 
 Naming note:
-- Matrix runner uses intent-first names (`pick/ban prior bias`, `role-distribution bias`).
+- Matrix runner uses intent-first names (`draft-frequency bias`, `role-distribution bias`).
 - Training CLI keeps historical flag names (`--champion-priors-*`, `--role-priors-*`) for compatibility.
 
 ### Common matrix commands
@@ -65,16 +66,16 @@ Naming note:
 INCLUDE_ALL_EMBEDDINGS_BASELINE=1 ./scripts/run_training_feature_matrix.sh
 
 # 3) Include bias on/off axes
-PICK_BAN_PRIOR_BIAS_VALUES=off,on ROLE_DISTRIBUTION_BIAS_VALUES=off,on \
+DRAFT_FREQUENCY_BIAS_VALUES=off,on ROLE_DISTRIBUTION_BIAS_VALUES=off,on \
   ./scripts/run_training_feature_matrix.sh
 
 # 4) Bias strength sweep (both bias axes enabled)
-PICK_BAN_PRIOR_BIAS_VALUES=on ROLE_DISTRIBUTION_BIAS_VALUES=on \
-PICK_BAN_PRIOR_BIAS_STRENGTH_VALUES=0.5,1.0 ROLE_DISTRIBUTION_BIAS_STRENGTH_VALUES=0.5,1.0 \
+DRAFT_FREQUENCY_BIAS_VALUES=on ROLE_DISTRIBUTION_BIAS_VALUES=on \
+DRAFT_FREQUENCY_BIAS_STRENGTH_VALUES=0.5,1.0 ROLE_DISTRIBUTION_BIAS_STRENGTH_VALUES=0.5,1.0 \
   ./scripts/run_training_feature_matrix.sh
 
 # 5) Dry-run the resolved grid without training
-DRY_RUN=1 PICK_BAN_PRIOR_BIAS_VALUES=off,on ROLE_DISTRIBUTION_BIAS_VALUES=off,on \
+DRY_RUN=1 DRAFT_FREQUENCY_BIAS_VALUES=off,on ROLE_DISTRIBUTION_BIAS_VALUES=off,on \
   ./scripts/run_training_feature_matrix.sh
 ```
 

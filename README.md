@@ -130,11 +130,11 @@ Common overrides:
 - full 2x2 embedding matrix (include on/on baseline):
   - `INCLUDE_ALL_EMBEDDINGS_BASELINE=1 ./scripts/run_training_feature_matrix.sh`
 - embeddings + bias on/off matrix:
-  - `PICK_BAN_PRIOR_BIAS_VALUES=off,on ROLE_DISTRIBUTION_BIAS_VALUES=off,on ./scripts/run_training_feature_matrix.sh`
+  - `DRAFT_FREQUENCY_BIAS_VALUES=off,on ROLE_DISTRIBUTION_BIAS_VALUES=off,on ./scripts/run_training_feature_matrix.sh`
 - sweep bias strengths (both bias axes enabled):
-  - `PICK_BAN_PRIOR_BIAS_VALUES=on ROLE_DISTRIBUTION_BIAS_VALUES=on PICK_BAN_PRIOR_BIAS_STRENGTH_VALUES=0.5,1.0 ROLE_DISTRIBUTION_BIAS_STRENGTH_VALUES=0.5,1.0 ./scripts/run_training_feature_matrix.sh`
+  - `DRAFT_FREQUENCY_BIAS_VALUES=on ROLE_DISTRIBUTION_BIAS_VALUES=on DRAFT_FREQUENCY_BIAS_STRENGTH_VALUES=0.5,1.0 ROLE_DISTRIBUTION_BIAS_STRENGTH_VALUES=0.5,1.0 ./scripts/run_training_feature_matrix.sh`
 - dry-run (print resolved matrix only):
-  - `DRY_RUN=1 PICK_BAN_PRIOR_BIAS_VALUES=off,on ROLE_DISTRIBUTION_BIAS_VALUES=off,on ./scripts/run_training_feature_matrix.sh`
+  - `DRY_RUN=1 DRAFT_FREQUENCY_BIAS_VALUES=off,on ROLE_DISTRIBUTION_BIAS_VALUES=off,on ./scripts/run_training_feature_matrix.sh`
 
 See `TRAINING_KNOBS.md` for the full knob catalog used by training and the matrix runner.
 

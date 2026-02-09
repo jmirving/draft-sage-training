@@ -77,14 +77,15 @@ fi
 
 # Optional bias axes (clear names).
 # Legacy aliases:
-# - CHAMPION_PRIORS_* => PICK_BAN_PRIOR_BIAS_*
+# - CHAMPION_PRIORS_* => DRAFT_FREQUENCY_BIAS_*
+# - PICK_BAN_PRIOR_BIAS_* => DRAFT_FREQUENCY_BIAS_*
 # - ROLE_PRIORS_* => ROLE_DISTRIBUTION_BIAS_*
-PICK_BAN_PRIOR_BIAS_VALUES="${PICK_BAN_PRIOR_BIAS_VALUES:-${CHAMPION_PRIORS_VALUES:-off}}"
+DRAFT_FREQUENCY_BIAS_VALUES="${DRAFT_FREQUENCY_BIAS_VALUES:-${PICK_BAN_PRIOR_BIAS_VALUES:-${CHAMPION_PRIORS_VALUES:-off}}}"
 ROLE_DISTRIBUTION_BIAS_VALUES="${ROLE_DISTRIBUTION_BIAS_VALUES:-${ROLE_PRIORS_VALUES:-off}}"
 
-PICK_BAN_PRIOR_BIAS_DIR="${PICK_BAN_PRIOR_BIAS_DIR:-${CHAMPION_PRIORS_DIR:-$ROOT_DIR/data/weights/champion-priors}}"
-PICK_BAN_PRIOR_BIAS_STRENGTH_VALUES="${PICK_BAN_PRIOR_BIAS_STRENGTH_VALUES:-${CHAMPION_PRIORS_STRENGTH_VALUES:-1.0}}"
-PICK_BAN_PRIOR_BIAS_TIME_BUCKET_VALUES="${PICK_BAN_PRIOR_BIAS_TIME_BUCKET_VALUES:-${CHAMPION_PRIORS_TIME_BUCKET_VALUES:-1}}"
+DRAFT_FREQUENCY_BIAS_DIR="${DRAFT_FREQUENCY_BIAS_DIR:-${PICK_BAN_PRIOR_BIAS_DIR:-${CHAMPION_PRIORS_DIR:-$ROOT_DIR/data/weights/champion-priors}}}"
+DRAFT_FREQUENCY_BIAS_STRENGTH_VALUES="${DRAFT_FREQUENCY_BIAS_STRENGTH_VALUES:-${PICK_BAN_PRIOR_BIAS_STRENGTH_VALUES:-${CHAMPION_PRIORS_STRENGTH_VALUES:-1.0}}}"
+DRAFT_FREQUENCY_BIAS_TIME_BUCKET_VALUES="${DRAFT_FREQUENCY_BIAS_TIME_BUCKET_VALUES:-${PICK_BAN_PRIOR_BIAS_TIME_BUCKET_VALUES:-${CHAMPION_PRIORS_TIME_BUCKET_VALUES:-1}}}"
 
 ROLE_DISTRIBUTION_BIAS_DIR="${ROLE_DISTRIBUTION_BIAS_DIR:-${ROLE_PRIORS_DIR:-$ROOT_DIR/data/weights/role-priors}}"
 ROLE_DISTRIBUTION_BIAS_STRENGTH_VALUES="${ROLE_DISTRIBUTION_BIAS_STRENGTH_VALUES:-${ROLE_PRIORS_STRENGTH_VALUES:-1.0}}"
@@ -214,22 +215,22 @@ for axis in "${EMBEDDING_AXES_ARR[@]}"; do
   AXES_LOG_PARTS+=("$axis=[$values_csv]")
 done
 
-declare -a PICK_BAN_BIAS_AXIS=()
+declare -a DRAFT_FREQ_BIAS_AXIS=()
 declare -a ROLE_DIST_BIAS_AXIS=()
-declare -a PICK_BAN_BIAS_STRENGTHS=()
-declare -a PICK_BAN_BIAS_TIME_BUCKETS=()
+declare -a DRAFT_FREQ_BIAS_STRENGTHS=()
+declare -a DRAFT_FREQ_BIAS_TIME_BUCKETS=()
 declare -a ROLE_DIST_BIAS_STRENGTHS=()
 
-parse_csv "$PICK_BAN_PRIOR_BIAS_VALUES" PICK_BAN_BIAS_AXIS
+parse_csv "$DRAFT_FREQUENCY_BIAS_VALUES" DRAFT_FREQ_BIAS_AXIS
 parse_csv "$ROLE_DISTRIBUTION_BIAS_VALUES" ROLE_DIST_BIAS_AXIS
-parse_csv "$PICK_BAN_PRIOR_BIAS_STRENGTH_VALUES" PICK_BAN_BIAS_STRENGTHS
-parse_csv "$PICK_BAN_PRIOR_BIAS_TIME_BUCKET_VALUES" PICK_BAN_BIAS_TIME_BUCKETS
+parse_csv "$DRAFT_FREQUENCY_BIAS_STRENGTH_VALUES" DRAFT_FREQ_BIAS_STRENGTHS
+parse_csv "$DRAFT_FREQUENCY_BIAS_TIME_BUCKET_VALUES" DRAFT_FREQ_BIAS_TIME_BUCKETS
 parse_csv "$ROLE_DISTRIBUTION_BIAS_STRENGTH_VALUES" ROLE_DIST_BIAS_STRENGTHS
 
-validate_on_off_values "PICK_BAN_PRIOR_BIAS_VALUES" "${PICK_BAN_BIAS_AXIS[@]}"
+validate_on_off_values "DRAFT_FREQUENCY_BIAS_VALUES" "${DRAFT_FREQ_BIAS_AXIS[@]}"
 validate_on_off_values "ROLE_DISTRIBUTION_BIAS_VALUES" "${ROLE_DIST_BIAS_AXIS[@]}"
 
-if [[ "${#PICK_BAN_BIAS_AXIS[@]}" -eq 0 || "${#ROLE_DIST_BIAS_AXIS[@]}" -eq 0 ]]; then
+if [[ "${#DRAFT_FREQ_BIAS_AXIS[@]}" -eq 0 || "${#ROLE_DIST_BIAS_AXIS[@]}" -eq 0 ]]; then
   echo "Bias axes cannot be empty." >&2
   exit 1
 fi
@@ -244,8 +245,8 @@ if [[ "$INCLUDE_ALL_EMBEDDINGS_BASELINE" != "0" && "$INCLUDE_ALL_EMBEDDINGS_BASE
   exit 1
 fi
 
-if contains_on "${PICK_BAN_BIAS_AXIS[@]}" && [[ ! -d "$PICK_BAN_PRIOR_BIAS_DIR" ]]; then
-  echo "PICK_BAN_PRIOR_BIAS_DIR not found but pick/ban bias axis includes 'on': $PICK_BAN_PRIOR_BIAS_DIR" >&2
+if contains_on "${DRAFT_FREQ_BIAS_AXIS[@]}" && [[ ! -d "$DRAFT_FREQUENCY_BIAS_DIR" ]]; then
+  echo "DRAFT_FREQUENCY_BIAS_DIR not found but draft-frequency bias axis includes 'on': $DRAFT_FREQUENCY_BIAS_DIR" >&2
   exit 1
 fi
 
@@ -254,8 +255,8 @@ if contains_on "${ROLE_DIST_BIAS_AXIS[@]}" && [[ ! -d "$ROLE_DISTRIBUTION_BIAS_D
   exit 1
 fi
 
-if [[ "${#PICK_BAN_BIAS_STRENGTHS[@]}" -eq 0 || "${#PICK_BAN_BIAS_TIME_BUCKETS[@]}" -eq 0 ]]; then
-  echo "Pick/ban prior bias strength/time bucket lists cannot be empty." >&2
+if [[ "${#DRAFT_FREQ_BIAS_STRENGTHS[@]}" -eq 0 || "${#DRAFT_FREQ_BIAS_TIME_BUCKETS[@]}" -eq 0 ]]; then
+  echo "Draft-frequency bias strength/time bucket lists cannot be empty." >&2
   exit 1
 fi
 
@@ -348,43 +349,43 @@ build_embedding_name() {
 }
 
 run_leaf_for_current_embeddings() {
-  local pick_ban_bias="$1"
+  local draft_freq_bias="$1"
   local role_dist_bias="$2"
 
-  if [[ "$INCLUDE_ALL_EMBEDDINGS_BASELINE" != "1" && "$pick_ban_bias" == "off" && "$role_dist_bias" == "off" ]]; then
+  if [[ "$INCLUDE_ALL_EMBEDDINGS_BASELINE" != "1" && "$draft_freq_bias" == "off" && "$role_dist_bias" == "off" ]]; then
     if all_embeddings_on; then
       return
     fi
   fi
 
-  local -a pick_ban_strength_loop=("na")
-  local -a pick_ban_bucket_loop=("na")
+  local -a draft_freq_strength_loop=("na")
+  local -a draft_freq_bucket_loop=("na")
   local -a role_dist_strength_loop=("na")
 
-  if [[ "$pick_ban_bias" == "on" ]]; then
-    pick_ban_strength_loop=("${PICK_BAN_BIAS_STRENGTHS[@]}")
-    pick_ban_bucket_loop=("${PICK_BAN_BIAS_TIME_BUCKETS[@]}")
+  if [[ "$draft_freq_bias" == "on" ]]; then
+    draft_freq_strength_loop=("${DRAFT_FREQ_BIAS_STRENGTHS[@]}")
+    draft_freq_bucket_loop=("${DRAFT_FREQ_BIAS_TIME_BUCKETS[@]}")
   fi
 
   if [[ "$role_dist_bias" == "on" ]]; then
     role_dist_strength_loop=("${ROLE_DIST_BIAS_STRENGTHS[@]}")
   fi
 
-  local pick_ban_strength
-  local pick_ban_bucket
+  local draft_freq_strength
+  local draft_freq_bucket
   local role_dist_strength
-  for pick_ban_strength in "${pick_ban_strength_loop[@]}"; do
-    for pick_ban_bucket in "${pick_ban_bucket_loop[@]}"; do
+  for draft_freq_strength in "${draft_freq_strength_loop[@]}"; do
+    for draft_freq_bucket in "${draft_freq_bucket_loop[@]}"; do
       for role_dist_strength in "${role_dist_strength_loop[@]}"; do
         local run_name
-        run_name="$(build_embedding_name)_pbbias_${pick_ban_bias}_roledist_${role_dist_bias}"
+        run_name="$(build_embedding_name)_dfbias_${draft_freq_bias}_roledist_${role_dist_bias}"
         local -a run_args=("${CURRENT_ARGS[@]}")
 
-        if [[ "$pick_ban_bias" == "on" ]]; then
-          run_args+=(--champion-priors-dir "$PICK_BAN_PRIOR_BIAS_DIR")
-          run_args+=(--champion-priors-strength "$pick_ban_strength")
-          run_args+=(--champion-priors-time-buckets "$pick_ban_bucket")
-          run_name+="_pbstr_$(slug "$pick_ban_strength")_pbbkt_$(slug "$pick_ban_bucket")"
+        if [[ "$draft_freq_bias" == "on" ]]; then
+          run_args+=(--champion-priors-dir "$DRAFT_FREQUENCY_BIAS_DIR")
+          run_args+=(--champion-priors-strength "$draft_freq_strength")
+          run_args+=(--champion-priors-time-buckets "$draft_freq_bucket")
+          run_name+="_dfstr_$(slug "$draft_freq_strength")_dfbkt_$(slug "$draft_freq_bucket")"
         fi
 
         if [[ "$role_dist_bias" == "on" ]]; then
@@ -406,11 +407,11 @@ walk_embedding_axes() {
   local idx="$1"
 
   if [[ "$idx" -ge "${#EMBEDDING_AXES_ARR[@]}" ]]; then
-    local pick_ban_bias
+    local draft_freq_bias
     local role_dist_bias
-    for pick_ban_bias in "${PICK_BAN_BIAS_AXIS[@]}"; do
+    for draft_freq_bias in "${DRAFT_FREQ_BIAS_AXIS[@]}"; do
       for role_dist_bias in "${ROLE_DIST_BIAS_AXIS[@]}"; do
-        run_leaf_for_current_embeddings "$pick_ban_bias" "$role_dist_bias"
+        run_leaf_for_current_embeddings "$draft_freq_bias" "$role_dist_bias"
       done
     done
     return
@@ -442,7 +443,7 @@ log "BASE_DIR=$BASE_DIR"
 log "MAX_PARALLEL=$MAX_PARALLEL DRY_RUN=$DRY_RUN"
 log "EMBEDDING_AXES=[$EMBEDDING_AXES]"
 log "INCLUDE_ALL_EMBEDDINGS_BASELINE=$INCLUDE_ALL_EMBEDDINGS_BASELINE"
-log "AXES ${AXES_LOG_PARTS[*]} pick_ban_prior_bias=[$PICK_BAN_PRIOR_BIAS_VALUES] role_distribution_bias=[$ROLE_DISTRIBUTION_BIAS_VALUES]"
+log "AXES ${AXES_LOG_PARTS[*]} draft_frequency_bias=[$DRAFT_FREQUENCY_BIAS_VALUES] role_distribution_bias=[$ROLE_DISTRIBUTION_BIAS_VALUES]"
 
 walk_embedding_axes 0
 
