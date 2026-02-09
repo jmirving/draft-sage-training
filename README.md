@@ -224,7 +224,6 @@ python scripts/train.py \
 - `scripts/train.py`: training entrypoint (wraps `draft_sage_training.cli`).
 - `scripts/diagnostics.py`: split/mask/leakage sanity checks.
 - `scripts/run_training_feature_matrix.sh`: configurable matrix runner for embedding + prior ablations.
-- `scripts/run_embedding_matrix_next3.sh`: deprecated compatibility shim to the matrix runner.
 - `scripts/generate_champion_eligibility.py`: eligibility artifact builder.
 - `scripts/generate_champion_priors.py`: champion priors generator.
 - `scripts/generate_role_priors.py`: role priors generator.
