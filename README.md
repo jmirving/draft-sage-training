@@ -111,23 +111,23 @@ Override paths by setting environment variables:
 Use the matrix helper to sweep league/team embeddings and optional priors:
 
 ```
-./scripts/run_embedding_matrix_next3.sh
+./scripts/run_training_feature_matrix.sh
 ```
 
-Default behavior matches the original "next3" ablation:
+Default behavior preserves the original 3-run embedding ablation:
 - `league_off_team_off`
 - `league_on_team_off`
 - `league_off_team_on`
 
 Common overrides:
-- include full 2x2 embedding matrix:
-  - `SKIP_BASELINE_ON_ON=0 ./scripts/run_embedding_matrix_next3.sh`
-- include champion + role prior sweeps:
-  - `CHAMPION_PRIORS_VALUES=off,on ROLE_PRIORS_VALUES=off,on ./scripts/run_embedding_matrix_next3.sh`
-- sweep weight strengths:
-  - `CHAMPION_PRIORS_STRENGTH_VALUES=0.5,1.0 ROLE_PRIORS_STRENGTH_VALUES=0.5,1.0 ./scripts/run_embedding_matrix_next3.sh`
-- dry-run (print run matrix without training):
-  - `DRY_RUN=1 ./scripts/run_embedding_matrix_next3.sh`
+- full 2x2 embedding matrix (include on/on baseline):
+  - `SKIP_BASELINE_ON_ON=0 ./scripts/run_training_feature_matrix.sh`
+- embeddings + prior on/off matrix:
+  - `CHAMPION_PRIORS_VALUES=off,on ROLE_PRIORS_VALUES=off,on ./scripts/run_training_feature_matrix.sh`
+- sweep prior strengths (both priors enabled):
+  - `CHAMPION_PRIORS_VALUES=on ROLE_PRIORS_VALUES=on CHAMPION_PRIORS_STRENGTH_VALUES=0.5,1.0 ROLE_PRIORS_STRENGTH_VALUES=0.5,1.0 ./scripts/run_training_feature_matrix.sh`
+- dry-run (print resolved matrix only):
+  - `DRY_RUN=1 CHAMPION_PRIORS_VALUES=off,on ROLE_PRIORS_VALUES=off,on ./scripts/run_training_feature_matrix.sh`
 
 Optional: add per-patch champion priors as a logit bias:
 ```
@@ -223,7 +223,8 @@ python scripts/train.py \
 ## Scripts
 - `scripts/train.py`: training entrypoint (wraps `draft_sage_training.cli`).
 - `scripts/diagnostics.py`: split/mask/leakage sanity checks.
-- `scripts/run_embedding_matrix_next3.sh`: configurable matrix runner for embedding + prior ablations.
+- `scripts/run_training_feature_matrix.sh`: configurable matrix runner for embedding + prior ablations.
+- `scripts/run_embedding_matrix_next3.sh`: deprecated compatibility shim to the matrix runner.
 - `scripts/generate_champion_eligibility.py`: eligibility artifact builder.
 - `scripts/generate_champion_priors.py`: champion priors generator.
 - `scripts/generate_role_priors.py`: role priors generator.
