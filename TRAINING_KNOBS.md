@@ -25,7 +25,7 @@ Use it when defining experiment variants and mapping controls into the training 
 |---|---|---|
 | `EMBEDDING_AXES` | `league,team` | Comma-separated embedding axes to sweep. |
 | `<AXIS>_EMBEDDINGS_VALUES` | `off,on` | Per-axis values (`on/off`) for each axis in `EMBEDDING_AXES`. |
-| `SKIP_BASELINE_ON_ON` | `1` | Skip run where all embeddings are `on` when priors are both `off`. |
+| `INCLUDE_ALL_EMBEDDINGS_BASELINE` | `0` | Include run where all embeddings are `on` when both bias axes are `off`. |
 
 Notes:
 - Axis names must be lowercase snake_case (example: `league`, `team`, `player`).
@@ -34,17 +34,26 @@ Notes:
   - `EMBEDDING_AXES=league,team,player`
   - `PLAYER_EMBEDDINGS_VALUES=off,on`
 
-### Priors axes + weight sweeps
+### Bias axes + weight sweeps
 
 | Knob | Default | Purpose |
 |---|---|---|
-| `CHAMPION_PRIORS_VALUES` | `off` | Include champion priors axis (`off/on`). |
-| `ROLE_PRIORS_VALUES` | `off` | Include role priors axis (`off/on`). |
-| `CHAMPION_PRIORS_DIR` | `data/weights/champion-priors` | Champion priors artifact directory. |
-| `CHAMPION_PRIORS_STRENGTH_VALUES` | `1.0` | Comma-separated champion prior strengths. |
-| `CHAMPION_PRIORS_TIME_BUCKET_VALUES` | `1` | Comma-separated champion prior time-bucket values. |
-| `ROLE_PRIORS_DIR` | `data/weights/role-priors` | Role priors artifact directory. |
-| `ROLE_PRIORS_STRENGTH_VALUES` | `1.0` | Comma-separated role prior strengths. |
+| `PICK_BAN_PRIOR_BIAS_VALUES` | `off` | Include pick/ban frequency bias axis (`off/on`). |
+| `ROLE_DISTRIBUTION_BIAS_VALUES` | `off` | Include role-distribution bias axis (`off/on`). |
+| `PICK_BAN_PRIOR_BIAS_DIR` | `data/weights/champion-priors` | Pick/ban bias artifact directory. |
+| `PICK_BAN_PRIOR_BIAS_STRENGTH_VALUES` | `1.0` | Comma-separated pick/ban bias strengths. |
+| `PICK_BAN_PRIOR_BIAS_TIME_BUCKET_VALUES` | `1` | Comma-separated pick/ban bias time-bucket values. |
+| `ROLE_DISTRIBUTION_BIAS_DIR` | `data/weights/role-priors` | Role-distribution bias artifact directory. |
+| `ROLE_DISTRIBUTION_BIAS_STRENGTH_VALUES` | `1.0` | Comma-separated role-distribution bias strengths. |
+
+Legacy aliases still supported in the matrix runner:
+- `SKIP_BASELINE_ON_ON` (inverse of `INCLUDE_ALL_EMBEDDINGS_BASELINE`)
+- `CHAMPION_PRIORS_*` (maps to `PICK_BAN_PRIOR_BIAS_*`)
+- `ROLE_PRIORS_*` (maps to `ROLE_DISTRIBUTION_BIAS_*`)
+
+Naming note:
+- Matrix runner uses intent-first names (`pick/ban prior bias`, `role-distribution bias`).
+- Training CLI keeps historical flag names (`--champion-priors-*`, `--role-priors-*`) for compatibility.
 
 ### Common matrix commands
 
@@ -53,19 +62,19 @@ Notes:
 ./scripts/run_training_feature_matrix.sh
 
 # 2) Full 2x2 embedding matrix (includes all-on baseline)
-SKIP_BASELINE_ON_ON=0 ./scripts/run_training_feature_matrix.sh
+INCLUDE_ALL_EMBEDDINGS_BASELINE=1 ./scripts/run_training_feature_matrix.sh
 
-# 3) Include priors on/off axes
-CHAMPION_PRIORS_VALUES=off,on ROLE_PRIORS_VALUES=off,on \
+# 3) Include bias on/off axes
+PICK_BAN_PRIOR_BIAS_VALUES=off,on ROLE_DISTRIBUTION_BIAS_VALUES=off,on \
   ./scripts/run_training_feature_matrix.sh
 
-# 4) Priors strength sweep (both priors enabled)
-CHAMPION_PRIORS_VALUES=on ROLE_PRIORS_VALUES=on \
-CHAMPION_PRIORS_STRENGTH_VALUES=0.5,1.0 ROLE_PRIORS_STRENGTH_VALUES=0.5,1.0 \
+# 4) Bias strength sweep (both bias axes enabled)
+PICK_BAN_PRIOR_BIAS_VALUES=on ROLE_DISTRIBUTION_BIAS_VALUES=on \
+PICK_BAN_PRIOR_BIAS_STRENGTH_VALUES=0.5,1.0 ROLE_DISTRIBUTION_BIAS_STRENGTH_VALUES=0.5,1.0 \
   ./scripts/run_training_feature_matrix.sh
 
 # 5) Dry-run the resolved grid without training
-DRY_RUN=1 CHAMPION_PRIORS_VALUES=off,on ROLE_PRIORS_VALUES=off,on \
+DRY_RUN=1 PICK_BAN_PRIOR_BIAS_VALUES=off,on ROLE_DISTRIBUTION_BIAS_VALUES=off,on \
   ./scripts/run_training_feature_matrix.sh
 ```
 

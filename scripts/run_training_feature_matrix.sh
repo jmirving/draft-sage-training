@@ -63,19 +63,31 @@ EMBEDDING_AXES="${EMBEDDING_AXES:-league,team}"
 LEAGUE_EMBEDDINGS_VALUES="${LEAGUE_EMBEDDINGS_VALUES:-off,on}"
 TEAM_EMBEDDINGS_VALUES="${TEAM_EMBEDDINGS_VALUES:-off,on}"
 
-# Skip the all-on embedding baseline when both priors axes are off.
-SKIP_BASELINE_ON_ON="${SKIP_BASELINE_ON_ON:-1}"
+# Include the all-on embedding baseline when both bias axes are off (1=yes, 0=no).
+# Legacy alias: SKIP_BASELINE_ON_ON (inverse)
+INCLUDE_ALL_EMBEDDINGS_BASELINE="${INCLUDE_ALL_EMBEDDINGS_BASELINE:-}"
+if [[ -z "$INCLUDE_ALL_EMBEDDINGS_BASELINE" ]]; then
+  legacy_skip="${SKIP_BASELINE_ON_ON:-1}"
+  if [[ "$legacy_skip" == "1" ]]; then
+    INCLUDE_ALL_EMBEDDINGS_BASELINE="0"
+  else
+    INCLUDE_ALL_EMBEDDINGS_BASELINE="1"
+  fi
+fi
 
-# Optional priors axes.
-CHAMPION_PRIORS_VALUES="${CHAMPION_PRIORS_VALUES:-off}"
-ROLE_PRIORS_VALUES="${ROLE_PRIORS_VALUES:-off}"
+# Optional bias axes (clear names).
+# Legacy aliases:
+# - CHAMPION_PRIORS_* => PICK_BAN_PRIOR_BIAS_*
+# - ROLE_PRIORS_* => ROLE_DISTRIBUTION_BIAS_*
+PICK_BAN_PRIOR_BIAS_VALUES="${PICK_BAN_PRIOR_BIAS_VALUES:-${CHAMPION_PRIORS_VALUES:-off}}"
+ROLE_DISTRIBUTION_BIAS_VALUES="${ROLE_DISTRIBUTION_BIAS_VALUES:-${ROLE_PRIORS_VALUES:-off}}"
 
-# Optional weight sweeps (used when corresponding priors axis includes "on").
-CHAMPION_PRIORS_DIR="${CHAMPION_PRIORS_DIR:-$ROOT_DIR/data/weights/champion-priors}"
-CHAMPION_PRIORS_STRENGTH_VALUES="${CHAMPION_PRIORS_STRENGTH_VALUES:-1.0}"
-CHAMPION_PRIORS_TIME_BUCKET_VALUES="${CHAMPION_PRIORS_TIME_BUCKET_VALUES:-1}"
-ROLE_PRIORS_DIR="${ROLE_PRIORS_DIR:-$ROOT_DIR/data/weights/role-priors}"
-ROLE_PRIORS_STRENGTH_VALUES="${ROLE_PRIORS_STRENGTH_VALUES:-1.0}"
+PICK_BAN_PRIOR_BIAS_DIR="${PICK_BAN_PRIOR_BIAS_DIR:-${CHAMPION_PRIORS_DIR:-$ROOT_DIR/data/weights/champion-priors}}"
+PICK_BAN_PRIOR_BIAS_STRENGTH_VALUES="${PICK_BAN_PRIOR_BIAS_STRENGTH_VALUES:-${CHAMPION_PRIORS_STRENGTH_VALUES:-1.0}}"
+PICK_BAN_PRIOR_BIAS_TIME_BUCKET_VALUES="${PICK_BAN_PRIOR_BIAS_TIME_BUCKET_VALUES:-${CHAMPION_PRIORS_TIME_BUCKET_VALUES:-1}}"
+
+ROLE_DISTRIBUTION_BIAS_DIR="${ROLE_DISTRIBUTION_BIAS_DIR:-${ROLE_PRIORS_DIR:-$ROOT_DIR/data/weights/role-priors}}"
+ROLE_DISTRIBUTION_BIAS_STRENGTH_VALUES="${ROLE_DISTRIBUTION_BIAS_STRENGTH_VALUES:-${ROLE_PRIORS_STRENGTH_VALUES:-1.0}}"
 
 mkdir -p "$BASE_DIR/logs"
 STATUS_FILE="$BASE_DIR/status.txt"
@@ -202,23 +214,23 @@ for axis in "${EMBEDDING_AXES_ARR[@]}"; do
   AXES_LOG_PARTS+=("$axis=[$values_csv]")
 done
 
-declare -a CHAMPION_PRIOR_AXIS=()
-declare -a ROLE_PRIOR_AXIS=()
-declare -a CHAMPION_PRIOR_STRENGTHS=()
-declare -a CHAMPION_PRIOR_TIME_BUCKETS=()
-declare -a ROLE_PRIOR_STRENGTHS=()
+declare -a PICK_BAN_BIAS_AXIS=()
+declare -a ROLE_DIST_BIAS_AXIS=()
+declare -a PICK_BAN_BIAS_STRENGTHS=()
+declare -a PICK_BAN_BIAS_TIME_BUCKETS=()
+declare -a ROLE_DIST_BIAS_STRENGTHS=()
 
-parse_csv "$CHAMPION_PRIORS_VALUES" CHAMPION_PRIOR_AXIS
-parse_csv "$ROLE_PRIORS_VALUES" ROLE_PRIOR_AXIS
-parse_csv "$CHAMPION_PRIORS_STRENGTH_VALUES" CHAMPION_PRIOR_STRENGTHS
-parse_csv "$CHAMPION_PRIORS_TIME_BUCKET_VALUES" CHAMPION_PRIOR_TIME_BUCKETS
-parse_csv "$ROLE_PRIORS_STRENGTH_VALUES" ROLE_PRIOR_STRENGTHS
+parse_csv "$PICK_BAN_PRIOR_BIAS_VALUES" PICK_BAN_BIAS_AXIS
+parse_csv "$ROLE_DISTRIBUTION_BIAS_VALUES" ROLE_DIST_BIAS_AXIS
+parse_csv "$PICK_BAN_PRIOR_BIAS_STRENGTH_VALUES" PICK_BAN_BIAS_STRENGTHS
+parse_csv "$PICK_BAN_PRIOR_BIAS_TIME_BUCKET_VALUES" PICK_BAN_BIAS_TIME_BUCKETS
+parse_csv "$ROLE_DISTRIBUTION_BIAS_STRENGTH_VALUES" ROLE_DIST_BIAS_STRENGTHS
 
-validate_on_off_values "CHAMPION_PRIORS_VALUES" "${CHAMPION_PRIOR_AXIS[@]}"
-validate_on_off_values "ROLE_PRIORS_VALUES" "${ROLE_PRIOR_AXIS[@]}"
+validate_on_off_values "PICK_BAN_PRIOR_BIAS_VALUES" "${PICK_BAN_BIAS_AXIS[@]}"
+validate_on_off_values "ROLE_DISTRIBUTION_BIAS_VALUES" "${ROLE_DIST_BIAS_AXIS[@]}"
 
-if [[ "${#CHAMPION_PRIOR_AXIS[@]}" -eq 0 || "${#ROLE_PRIOR_AXIS[@]}" -eq 0 ]]; then
-  echo "Priors axes cannot be empty." >&2
+if [[ "${#PICK_BAN_BIAS_AXIS[@]}" -eq 0 || "${#ROLE_DIST_BIAS_AXIS[@]}" -eq 0 ]]; then
+  echo "Bias axes cannot be empty." >&2
   exit 1
 fi
 
@@ -227,23 +239,28 @@ if [[ "$MAX_PARALLEL" -lt 1 ]]; then
   exit 1
 fi
 
-if contains_on "${CHAMPION_PRIOR_AXIS[@]}" && [[ ! -d "$CHAMPION_PRIORS_DIR" ]]; then
-  echo "CHAMPION_PRIORS_DIR not found but champion priors axis includes 'on': $CHAMPION_PRIORS_DIR" >&2
+if [[ "$INCLUDE_ALL_EMBEDDINGS_BASELINE" != "0" && "$INCLUDE_ALL_EMBEDDINGS_BASELINE" != "1" ]]; then
+  echo "INCLUDE_ALL_EMBEDDINGS_BASELINE must be 0 or 1." >&2
   exit 1
 fi
 
-if contains_on "${ROLE_PRIOR_AXIS[@]}" && [[ ! -d "$ROLE_PRIORS_DIR" ]]; then
-  echo "ROLE_PRIORS_DIR not found but role priors axis includes 'on': $ROLE_PRIORS_DIR" >&2
+if contains_on "${PICK_BAN_BIAS_AXIS[@]}" && [[ ! -d "$PICK_BAN_PRIOR_BIAS_DIR" ]]; then
+  echo "PICK_BAN_PRIOR_BIAS_DIR not found but pick/ban bias axis includes 'on': $PICK_BAN_PRIOR_BIAS_DIR" >&2
   exit 1
 fi
 
-if [[ "${#CHAMPION_PRIOR_STRENGTHS[@]}" -eq 0 || "${#CHAMPION_PRIOR_TIME_BUCKETS[@]}" -eq 0 ]]; then
-  echo "Champion priors strength/time bucket lists cannot be empty." >&2
+if contains_on "${ROLE_DIST_BIAS_AXIS[@]}" && [[ ! -d "$ROLE_DISTRIBUTION_BIAS_DIR" ]]; then
+  echo "ROLE_DISTRIBUTION_BIAS_DIR not found but role-distribution bias axis includes 'on': $ROLE_DISTRIBUTION_BIAS_DIR" >&2
   exit 1
 fi
 
-if [[ "${#ROLE_PRIOR_STRENGTHS[@]}" -eq 0 ]]; then
-  echo "Role priors strength list cannot be empty." >&2
+if [[ "${#PICK_BAN_BIAS_STRENGTHS[@]}" -eq 0 || "${#PICK_BAN_BIAS_TIME_BUCKETS[@]}" -eq 0 ]]; then
+  echo "Pick/ban prior bias strength/time bucket lists cannot be empty." >&2
+  exit 1
+fi
+
+if [[ "${#ROLE_DIST_BIAS_STRENGTHS[@]}" -eq 0 ]]; then
+  echo "Role-distribution bias strength list cannot be empty." >&2
   exit 1
 fi
 
@@ -331,49 +348,49 @@ build_embedding_name() {
 }
 
 run_leaf_for_current_embeddings() {
-  local champion_priors="$1"
-  local role_priors="$2"
+  local pick_ban_bias="$1"
+  local role_dist_bias="$2"
 
-  if [[ "$SKIP_BASELINE_ON_ON" == "1" && "$champion_priors" == "off" && "$role_priors" == "off" ]]; then
+  if [[ "$INCLUDE_ALL_EMBEDDINGS_BASELINE" != "1" && "$pick_ban_bias" == "off" && "$role_dist_bias" == "off" ]]; then
     if all_embeddings_on; then
       return
     fi
   fi
 
-  local -a champion_strength_loop=("na")
-  local -a champion_bucket_loop=("na")
-  local -a role_strength_loop=("na")
+  local -a pick_ban_strength_loop=("na")
+  local -a pick_ban_bucket_loop=("na")
+  local -a role_dist_strength_loop=("na")
 
-  if [[ "$champion_priors" == "on" ]]; then
-    champion_strength_loop=("${CHAMPION_PRIOR_STRENGTHS[@]}")
-    champion_bucket_loop=("${CHAMPION_PRIOR_TIME_BUCKETS[@]}")
+  if [[ "$pick_ban_bias" == "on" ]]; then
+    pick_ban_strength_loop=("${PICK_BAN_BIAS_STRENGTHS[@]}")
+    pick_ban_bucket_loop=("${PICK_BAN_BIAS_TIME_BUCKETS[@]}")
   fi
 
-  if [[ "$role_priors" == "on" ]]; then
-    role_strength_loop=("${ROLE_PRIOR_STRENGTHS[@]}")
+  if [[ "$role_dist_bias" == "on" ]]; then
+    role_dist_strength_loop=("${ROLE_DIST_BIAS_STRENGTHS[@]}")
   fi
 
-  local champion_strength
-  local champion_bucket
-  local role_strength
-  for champion_strength in "${champion_strength_loop[@]}"; do
-    for champion_bucket in "${champion_bucket_loop[@]}"; do
-      for role_strength in "${role_strength_loop[@]}"; do
+  local pick_ban_strength
+  local pick_ban_bucket
+  local role_dist_strength
+  for pick_ban_strength in "${pick_ban_strength_loop[@]}"; do
+    for pick_ban_bucket in "${pick_ban_bucket_loop[@]}"; do
+      for role_dist_strength in "${role_dist_strength_loop[@]}"; do
         local run_name
-        run_name="$(build_embedding_name)_cp_${champion_priors}_rp_${role_priors}"
+        run_name="$(build_embedding_name)_pbbias_${pick_ban_bias}_roledist_${role_dist_bias}"
         local -a run_args=("${CURRENT_ARGS[@]}")
 
-        if [[ "$champion_priors" == "on" ]]; then
-          run_args+=(--champion-priors-dir "$CHAMPION_PRIORS_DIR")
-          run_args+=(--champion-priors-strength "$champion_strength")
-          run_args+=(--champion-priors-time-buckets "$champion_bucket")
-          run_name+="_cps_$(slug "$champion_strength")_cpb_$(slug "$champion_bucket")"
+        if [[ "$pick_ban_bias" == "on" ]]; then
+          run_args+=(--champion-priors-dir "$PICK_BAN_PRIOR_BIAS_DIR")
+          run_args+=(--champion-priors-strength "$pick_ban_strength")
+          run_args+=(--champion-priors-time-buckets "$pick_ban_bucket")
+          run_name+="_pbstr_$(slug "$pick_ban_strength")_pbbkt_$(slug "$pick_ban_bucket")"
         fi
 
-        if [[ "$role_priors" == "on" ]]; then
-          run_args+=(--role-priors-dir "$ROLE_PRIORS_DIR")
-          run_args+=(--role-priors-strength "$role_strength")
-          run_name+="_rps_$(slug "$role_strength")"
+        if [[ "$role_dist_bias" == "on" ]]; then
+          run_args+=(--role-priors-dir "$ROLE_DISTRIBUTION_BIAS_DIR")
+          run_args+=(--role-priors-strength "$role_dist_strength")
+          run_name+="_rdbstr_$(slug "$role_dist_strength")"
         fi
 
         run_one "$run_name" "${run_args[@]}"
@@ -389,11 +406,11 @@ walk_embedding_axes() {
   local idx="$1"
 
   if [[ "$idx" -ge "${#EMBEDDING_AXES_ARR[@]}" ]]; then
-    local champion_priors
-    local role_priors
-    for champion_priors in "${CHAMPION_PRIOR_AXIS[@]}"; do
-      for role_priors in "${ROLE_PRIOR_AXIS[@]}"; do
-        run_leaf_for_current_embeddings "$champion_priors" "$role_priors"
+    local pick_ban_bias
+    local role_dist_bias
+    for pick_ban_bias in "${PICK_BAN_BIAS_AXIS[@]}"; do
+      for role_dist_bias in "${ROLE_DIST_BIAS_AXIS[@]}"; do
+        run_leaf_for_current_embeddings "$pick_ban_bias" "$role_dist_bias"
       done
     done
     return
@@ -424,7 +441,8 @@ walk_embedding_axes() {
 log "BASE_DIR=$BASE_DIR"
 log "MAX_PARALLEL=$MAX_PARALLEL DRY_RUN=$DRY_RUN"
 log "EMBEDDING_AXES=[$EMBEDDING_AXES]"
-log "AXES ${AXES_LOG_PARTS[*]} champion_priors=[$CHAMPION_PRIORS_VALUES] role_priors=[$ROLE_PRIORS_VALUES]"
+log "INCLUDE_ALL_EMBEDDINGS_BASELINE=$INCLUDE_ALL_EMBEDDINGS_BASELINE"
+log "AXES ${AXES_LOG_PARTS[*]} pick_ban_prior_bias=[$PICK_BAN_PRIOR_BIAS_VALUES] role_distribution_bias=[$ROLE_DISTRIBUTION_BIAS_VALUES]"
 
 walk_embedding_axes 0
 
