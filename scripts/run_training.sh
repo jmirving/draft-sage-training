@@ -50,7 +50,30 @@ if [[ -z "$CHAMPION_MAPPING_PATH" ]]; then
 fi
 
 if [[ -z "$CHAMPION_MAPPING_PATH" ]]; then
+  DDRAGON_BUILDER_ROOT="${DDRAGON_BUILDER_ROOT:-$ROOT_DIR/../lol-ddragon-context-artifact-builder}"
+  DDRAGON_SNAPSHOT_BASE="${DDRAGON_SNAPSHOT_BASE:-$ROOT_DIR/../lol-ddragon-snapshot-cron/data/ddragon/extracted}"
+  DDRAGON_SNAPSHOT_LOCALE="${DDRAGON_SNAPSHOT_LOCALE:-en_US}"
+  BUILDER_OUTPUT_PATH="$DDRAGON_BUILDER_ROOT/data/ddragon/artifacts/champion-mapping/latest.json"
+  if [[ -d "$DDRAGON_BUILDER_ROOT" && -d "$DDRAGON_SNAPSHOT_BASE" ]]; then
+    SNAPSHOT_VERSION="$(find "$DDRAGON_SNAPSHOT_BASE" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort -V | tail -n 1)"
+    if [[ -n "$SNAPSHOT_VERSION" ]]; then
+      echo "Champion mapping missing; building latest from DDragon snapshot ($SNAPSHOT_VERSION)."
+      (
+        cd "$DDRAGON_BUILDER_ROOT"
+        GRADLE_USER_HOME="${GRADLE_USER_HOME:-/tmp/.gradle-clean}" gradle_safe run \
+          --args="--snapshot-base-uri=$DDRAGON_SNAPSHOT_BASE --snapshot-version=$SNAPSHOT_VERSION --snapshot-locale=$DDRAGON_SNAPSHOT_LOCALE --artifacts-base-uri=$DDRAGON_BUILDER_ROOT/data --artifact-version=latest"
+      )
+      if [[ -f "$BUILDER_OUTPUT_PATH" ]]; then
+        CHAMPION_MAPPING_PATH="$BUILDER_OUTPUT_PATH"
+      fi
+    fi
+  fi
+fi
+
+if [[ -z "$CHAMPION_MAPPING_PATH" ]]; then
   echo "No champion mapping found. Set CHAMPION_MAPPING_PATH to a mapping JSON." >&2
+  echo "Checked snapshot base: ${DDRAGON_SNAPSHOT_BASE:-<unset>}" >&2
+  echo "Checked builder root: ${DDRAGON_BUILDER_ROOT:-<unset>}" >&2
   exit 1
 fi
 

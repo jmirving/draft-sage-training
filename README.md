@@ -107,6 +107,16 @@ Defaults:
 Override paths by setting environment variables:
 `INPUT_DIR`, `CHAMPION_MAPPING_PATH`, `OUTPUT_DIR`, `PUBLISH_DATA_DIR`.
 
+If no champion mapping is found in default locations, `run_training.sh` now
+auto-builds `latest.json` using:
+- `../lol-ddragon-snapshot-cron/data/ddragon/extracted` (latest snapshot version)
+- `../lol-ddragon-context-artifact-builder` (`gradle_safe run`)
+
+Optional overrides:
+- `DDRAGON_BUILDER_ROOT`
+- `DDRAGON_SNAPSHOT_BASE`
+- `DDRAGON_SNAPSHOT_LOCALE`
+
 ### Embedding/weights matrix runs
 Use the matrix helper to sweep embedding axes and optional priors:
 
