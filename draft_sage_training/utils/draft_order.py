@@ -10,3 +10,13 @@ DRAFT_ORDER = [
     ("red", "pick", 4), ("blue", "pick", 4),
     ("blue", "pick", 5), ("red", "pick", 5),
 ]
+
+
+def draft_order_for_first_pick(first_pick_side: str | None) -> list[tuple[str, str, int]]:
+    normalized = (first_pick_side or "").strip().lower()
+    if normalized != "red":
+        return DRAFT_ORDER
+    return [
+        ("red" if side == "blue" else "blue", action_type, action_number)
+        for side, action_type, action_number in DRAFT_ORDER
+    ]

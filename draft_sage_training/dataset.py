@@ -13,13 +13,86 @@ from torch.utils.data import Dataset
 from draft_sage_training.utils.champion_sanitizer import ChampionSanitizer
 from draft_sage_training.utils.champion_eligibility import load_champion_eligibility
 from draft_sage_training.utils.champion_mapping import load_champion_mapping
-from draft_sage_training.utils.draft_order import DRAFT_ORDER
+from draft_sage_training.utils.draft_order import draft_order_for_first_pick
 from draft_sage_training.utils.role_priors import DEFAULT_ROLE_ORDER, validate_role_priors_payload
 
 
 PICK_COLUMNS = ["pick1", "pick2", "pick3", "pick4", "pick5"]
 BAN_COLUMNS = ["ban1", "ban2", "ban3", "ban4", "ban5"]
 TEAM_IDS = {100, 200}
+FIRSTPICK_COLUMN = "firstpick"
+FIRSTPICK_TRUE_VALUES = {"1", "true", "yes", "y", "t"}
+FIRSTPICK_FALSE_VALUES = {"0", "false", "no", "n", "f"}
+
+
+def _normalize_text(value: object) -> str | None:
+    if value is None or pd.isna(value):
+        return None
+    text = str(value).strip()
+    return text.lower() if text else None
+
+
+def _normalize_side(value: object, blue_teamid: object, red_teamid: object) -> str | None:
+    token = _normalize_text(value)
+    if token is None:
+        return None
+
+    if token in {"blue", "b", "100"}:
+        return "blue"
+    if token in {"red", "r", "200"}:
+        return "red"
+
+    blue_token = _normalize_text(blue_teamid)
+    red_token = _normalize_text(red_teamid)
+    if blue_token and token == blue_token:
+        return "blue"
+    if red_token and token == red_token:
+        return "red"
+    return None
+
+
+def _parse_truthy_flag(value: object) -> bool | None:
+    token = _normalize_text(value)
+    if token is None:
+        return None
+    if token in FIRSTPICK_TRUE_VALUES:
+        return True
+    if token in FIRSTPICK_FALSE_VALUES:
+        return False
+    return None
+
+
+def resolve_first_pick_side(blue_row: pd.Series, red_row: pd.Series) -> str:
+    blue_teamid = blue_row.get("teamid")
+    red_teamid = red_row.get("teamid")
+    blue_firstpick = blue_row.get(FIRSTPICK_COLUMN)
+    red_firstpick = red_row.get(FIRSTPICK_COLUMN)
+
+    side_from_blue = _normalize_side(blue_firstpick, blue_teamid, red_teamid)
+    side_from_red = _normalize_side(red_firstpick, blue_teamid, red_teamid)
+    if side_from_blue and side_from_red and side_from_blue != side_from_red:
+        logging.warning(
+            "Conflicting firstpick side values (blue_row=%s, red_row=%s); defaulting to blue.",
+            blue_firstpick,
+            red_firstpick,
+        )
+        return "blue"
+    if side_from_blue:
+        return side_from_blue
+    if side_from_red:
+        return side_from_red
+
+    blue_flag = _parse_truthy_flag(blue_firstpick)
+    red_flag = _parse_truthy_flag(red_firstpick)
+    if blue_flag is True and red_flag is False:
+        return "blue"
+    if red_flag is True and blue_flag is False:
+        return "red"
+    if blue_flag is True and red_flag is None:
+        return "blue"
+    if red_flag is True and blue_flag is None:
+        return "red"
+    return "blue"
 
 
 def load_latest_csv(directory: Path, patterns: Sequence[str]) -> Path:
@@ -722,8 +795,10 @@ class DraftDataset(Dataset):
             series_used_champions = sorted(fearless_picks)
             used_champions = set(fearless_picks)
             draft_sequence = [0] * self.draft_features
+            first_pick_side = resolve_first_pick_side(blue_row, red_row)
+            draft_order = draft_order_for_first_pick(first_pick_side)
 
-            for event_index, (side, action_type, action_number) in enumerate(DRAFT_ORDER):
+            for event_index, (side, action_type, action_number) in enumerate(draft_order):
                 row = blue_row if side == "blue" else red_row
                 column_prefix = "ban" if action_type == "ban" else "pick"
                 column_name = f"{column_prefix}{action_number}"
@@ -766,6 +841,7 @@ class DraftDataset(Dataset):
                         "priors_key": priors_key,
                         "action_type": action_type,
                         "side": side,
+                        "first_pick_side": first_pick_side,
                         "event_index": event_index,
                         "league": row.get("league"),
                         "league_key": league_key,
