@@ -171,7 +171,7 @@ def train_subset(
     for _ in range(max(epochs, 1)):
         run_epoch(model, loader, loss_function, optimizer, device=device, is_train=True)
 
-    loss, accuracy = evaluate_model(model, eval_loader, loss_function, device=device)
+    loss, accuracy, _ = evaluate_model(model, eval_loader, loss_function, device=device)
     return loss, accuracy
 
 

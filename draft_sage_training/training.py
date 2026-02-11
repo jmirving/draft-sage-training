@@ -72,11 +72,15 @@ def run_epoch(model, data_loader, loss_function, optimizer=None, device="cpu", i
     return total_loss / len(data_loader) if len(data_loader) else 0.0
 
 
-def evaluate_model(model, data_loader, loss_function, device="cpu") -> Tuple[float, float]:
+def evaluate_model(model, data_loader, loss_function, device="cpu") -> Tuple[float, float, list[dict]]:
     model.eval()
     total_loss = 0.0
     correct_predictions = 0
     total_examples = 0
+    num_slots = len(DRAFT_ORDER)
+    slot_totals = [0] * num_slots
+    slot_correct = [0] * num_slots
+    slot_side_counts = [{"blue": 0, "red": 0} for _ in range(num_slots)]
 
     with torch.no_grad():
         for batch in data_loader:
@@ -99,12 +103,50 @@ def evaluate_model(model, data_loader, loss_function, device="cpu") -> Tuple[flo
             total_loss += loss.item()
 
             predictions = masked_outputs.argmax(dim=1)
-            correct_predictions += (predictions == batch["target"].to(device)).sum().item()
+            targets = batch["target"].to(device)
+            matches = predictions == targets
+            correct_predictions += matches.sum().item()
             total_examples += batch["target"].size(0)
+
+            event_indices = batch["event_index"].detach().cpu().tolist()
+            side_values = batch["side"].detach().cpu().tolist()
+            match_values = matches.detach().cpu().tolist()
+            for event_index_value, side_value, is_correct in zip(
+                event_indices,
+                side_values,
+                match_values,
+            ):
+                slot_index = int(event_index_value)
+                if slot_index < 0 or slot_index >= num_slots:
+                    continue
+                slot_totals[slot_index] += 1
+                if is_correct:
+                    slot_correct[slot_index] += 1
+                side_key = "red" if int(side_value) == 1 else "blue"
+                slot_side_counts[slot_index][side_key] += 1
 
     avg_loss = total_loss / len(data_loader) if len(data_loader) else 0.0
     accuracy = (correct_predictions / total_examples) if total_examples else 0.0
-    return avg_loss, accuracy
+    per_slot_accuracy = []
+    for index, (canonical_side, action_type, action_number) in enumerate(DRAFT_ORDER):
+        total = slot_totals[index]
+        correct = slot_correct[index]
+        per_slot_accuracy.append(
+            {
+                "slot": index + 1,
+                "slot_id": f"slot_{index + 1:02d}",
+                "canonical": {
+                    "side": canonical_side,
+                    "type": action_type,
+                    "num": action_number,
+                },
+                "observed_side_counts": slot_side_counts[index],
+                "correct": correct,
+                "total": total,
+                "accuracy": (correct / total) if total else None,
+            }
+        )
+    return avg_loss, accuracy, per_slot_accuracy
 
 
 def split_indices(
@@ -480,7 +522,12 @@ def train(config: TrainingConfig) -> int:
         return 1
 
     model.load_state_dict(best_model_state)
-    test_loss, test_accuracy = evaluate_model(model, test_loader, loss_function, device=device)
+    test_loss, test_accuracy, per_slot_accuracy = evaluate_model(
+        model,
+        test_loader,
+        loss_function,
+        device=device,
+    )
     torch.save(best_model_state, model_path)
 
     feature_set = [
@@ -505,6 +552,7 @@ def train(config: TrainingConfig) -> int:
         "best_val_loss": best_val_loss,
         "test_loss": test_loss,
         "test_accuracy": test_accuracy,
+        "per_slot_accuracy": per_slot_accuracy,
         "feature_set": feature_set,
         "num_leagues": dataset.num_leagues,
         "num_teams": dataset.num_teams,
@@ -548,6 +596,7 @@ def train(config: TrainingConfig) -> int:
             "accuracy": test_accuracy,
             "loss": test_loss,
             "best_val_loss": best_val_loss,
+            "per_slot_accuracy": per_slot_accuracy,
         },
         samples={
             "train": len(train_dataset),
