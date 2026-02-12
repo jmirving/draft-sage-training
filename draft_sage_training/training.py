@@ -131,12 +131,13 @@ def evaluate_model(model, data_loader, loss_function, device="cpu") -> Tuple[flo
     for index, (canonical_side, action_type, action_number) in enumerate(DRAFT_ORDER):
         total = slot_totals[index]
         correct = slot_correct[index]
+        canonical_team = "team_1" if canonical_side == "blue" else "team_2"
         per_slot_accuracy.append(
             {
                 "slot": index + 1,
                 "slot_id": f"slot_{index + 1:02d}",
                 "canonical": {
-                    "side": canonical_side,
+                    "team": canonical_team,
                     "type": action_type,
                     "num": action_number,
                 },

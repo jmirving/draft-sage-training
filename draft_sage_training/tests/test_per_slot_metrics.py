@@ -81,6 +81,10 @@ class PerSlotMetricsTests(unittest.TestCase):
 
         slot1 = per_slot_accuracy[0]
         self.assertEqual(slot1["slot"], 1)
+        self.assertEqual(slot1["canonical"]["team"], "team_1")
+        self.assertEqual(slot1["canonical"]["type"], "ban")
+        self.assertEqual(slot1["canonical"]["num"], 1)
+        self.assertNotIn("side", slot1["canonical"])
         self.assertEqual(slot1["total"], 1)
         self.assertEqual(slot1["correct"], 1)
         self.assertAlmostEqual(slot1["accuracy"], 1.0, places=6)
@@ -89,6 +93,10 @@ class PerSlotMetricsTests(unittest.TestCase):
 
         slot2 = per_slot_accuracy[1]
         self.assertEqual(slot2["slot"], 2)
+        self.assertEqual(slot2["canonical"]["team"], "team_2")
+        self.assertEqual(slot2["canonical"]["type"], "ban")
+        self.assertEqual(slot2["canonical"]["num"], 1)
+        self.assertNotIn("side", slot2["canonical"])
         self.assertEqual(slot2["total"], 2)
         self.assertEqual(slot2["correct"], 1)
         self.assertAlmostEqual(slot2["accuracy"], 0.5, places=6)
