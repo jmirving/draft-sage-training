@@ -13,6 +13,14 @@ bd_safe update <id> --status in_progress  # Claim work
 bd_safe close <id> --reason "<text>"      # Complete work
 ```
 
+## Training Defaults (Agent Guardrails)
+- Default experiment dataset: cleaned `2025 + Jan 2026` (`.tmp/prodata-2025-plus-2026-01-clean`).
+- Default baseline posture unless explicitly overridden: League embeddings `on`, Team embeddings `off`, Eligibility `on`, Weights `off`.
+- Record every planned/executed test in `project-brain/daily-briefs/EXPERIMENT_TEST_LOG_YYYY-MM-DD.csv`.
+- If a code/config change requires experiment-log column changes or test-matrix changes, explicitly surface that in chat and update the CSV/header/matrix plan in the same session.
+- Do not attempt to run training scripts in sandbox; assume sandbox execution can fail.
+- Always provide full copy/paste script commands for running tests, with publish commands included.
+
 ## Landing the Plane (Session Completion)
 
 **When ending a work session**, you MUST complete ALL steps below. Work is NOT complete until `git push` succeeds.

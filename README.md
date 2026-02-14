@@ -124,10 +124,11 @@ Use the matrix helper to sweep embedding axes and optional priors:
 ./scripts/run_training_feature_matrix.sh
 ```
 
-Default behavior preserves the original 3-run embedding ablation (`league/team`):
-- `league_off_team_off`
-- `league_on_team_off`
-- `league_off_team_on`
+Default behavior runs the canonical baseline profile:
+- `league_on_team_off_dfbias_off_roledist_off`
+- Eligibility defaults to `on` via `data/eligibility/champion-eligibility-20260213-refresh.json` (set `CHAMPION_ELIGIBILITY_PATH=off` only for intentional overrides).
+- Data defaults to clean `2025 + Jan 2026` at `.tmp/prodata-2025-plus-2026-01-clean`; missing path is treated as a setup error.
+- Non-default dataset path or label requires `ALLOW_DATASET_OVERRIDE=1`.
 
 Axis model:
 - `EMBEDDING_AXES=league,team` by default.
@@ -138,13 +139,13 @@ Axis model:
 
 Common overrides:
 - full 2x2 embedding matrix (include on/on baseline):
-  - `INCLUDE_ALL_EMBEDDINGS_BASELINE=1 ./scripts/run_training_feature_matrix.sh`
+  - `LEAGUE_EMBEDDINGS_VALUES=off,on TEAM_EMBEDDINGS_VALUES=off,on INCLUDE_ALL_EMBEDDINGS_BASELINE=1 ./scripts/run_training_feature_matrix.sh`
 - embeddings + bias on/off matrix:
-  - `DRAFT_FREQUENCY_BIAS_VALUES=off,on ROLE_DISTRIBUTION_BIAS_VALUES=off,on ./scripts/run_training_feature_matrix.sh`
+  - `LEAGUE_EMBEDDINGS_VALUES=off,on TEAM_EMBEDDINGS_VALUES=off,on DRAFT_FREQUENCY_BIAS_VALUES=off,on ROLE_DISTRIBUTION_BIAS_VALUES=off,on ./scripts/run_training_feature_matrix.sh`
 - sweep bias strengths (both bias axes enabled):
-  - `DRAFT_FREQUENCY_BIAS_VALUES=on ROLE_DISTRIBUTION_BIAS_VALUES=on DRAFT_FREQUENCY_BIAS_STRENGTH_VALUES=0.5,1.0 ROLE_DISTRIBUTION_BIAS_STRENGTH_VALUES=0.5,1.0 ./scripts/run_training_feature_matrix.sh`
+  - `LEAGUE_EMBEDDINGS_VALUES=off,on TEAM_EMBEDDINGS_VALUES=off,on DRAFT_FREQUENCY_BIAS_VALUES=on ROLE_DISTRIBUTION_BIAS_VALUES=on DRAFT_FREQUENCY_BIAS_STRENGTH_VALUES=0.5,1.0 ROLE_DISTRIBUTION_BIAS_STRENGTH_VALUES=0.5,1.0 ./scripts/run_training_feature_matrix.sh`
 - dry-run (print resolved matrix only):
-  - `DRY_RUN=1 DRAFT_FREQUENCY_BIAS_VALUES=off,on ROLE_DISTRIBUTION_BIAS_VALUES=off,on ./scripts/run_training_feature_matrix.sh`
+  - `LEAGUE_EMBEDDINGS_VALUES=off,on TEAM_EMBEDDINGS_VALUES=off,on DRY_RUN=1 DRAFT_FREQUENCY_BIAS_VALUES=off,on ROLE_DISTRIBUTION_BIAS_VALUES=off,on ./scripts/run_training_feature_matrix.sh`
 
 See `TRAINING_KNOBS.md` for the full knob catalog used by training and the matrix runner.
 

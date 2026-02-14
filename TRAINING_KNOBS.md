@@ -9,25 +9,30 @@ Use it when defining experiment variants and mapping controls into the training 
 
 | Knob | Default | Purpose |
 |---|---|---|
-| `INPUT_DIR` | auto-resolved | Processed prodata source directory. |
+| `INPUT_DIR` | `.tmp/prodata-2025-plus-2026-01-clean` | Processed prodata source directory. |
 | `CHAMPION_MAPPING_PATH` | auto-resolved | Champion mapping artifact path. |
+| `CHAMPION_ELIGIBILITY_PATH` | `data/eligibility/champion-eligibility-20260213-refresh.json` | Eligibility artifact path (league/date gating). |
 | `EPOCHS` | `20` | Epochs per run. |
 | `SEED` | `42` | Random seed per run. |
-| `DATASET_LABEL` | `Clean 2025` | Label written to run metadata. |
+| `DATASET_LABEL` | `Clean 2025 + Jan 2026` | Label written to run metadata. |
 | `CATEGORY` | `embedding-matrix` | Summary category for UI grouping. |
 | `BASE_DIR` | timestamped `.tmp` path | Parent directory for matrix outputs/logs. |
 | `MAX_PARALLEL` | `3` | Max concurrent training jobs. |
 | `DRY_RUN` | `0` | `1` prints matrix and args without launching training. |
+| `ALLOW_DATASET_OVERRIDE` | `0` | Set to `1` only when intentionally using a non-canonical dataset path/label combination. |
 
 ### Embedding axes (generic)
 
 | Knob | Default | Purpose |
 |---|---|---|
 | `EMBEDDING_AXES` | `league,team` | Comma-separated embedding axes to sweep. |
-| `<AXIS>_EMBEDDINGS_VALUES` | `off,on` | Per-axis values (`on/off`) for each axis in `EMBEDDING_AXES`. |
+| `<AXIS>_EMBEDDINGS_VALUES` | `league=on`, `team=off` (others `off,on`) | Per-axis values (`on/off`) for each axis in `EMBEDDING_AXES`. |
 | `INCLUDE_ALL_EMBEDDINGS_BASELINE` | `0` | Include run where all embeddings are `on` when both bias axes are `off`. |
 
 Notes:
+- Current default baseline profile is: League `on`, Team `off`, Eligibility `on`, Weights `off`.
+- Set `CHAMPION_ELIGIBILITY_PATH=off` only when intentionally overriding the default eligibility-on baseline.
+- Non-default `INPUT_DIR` or mismatched `DATASET_LABEL` requires `ALLOW_DATASET_OVERRIDE=1`.
 - Axis names must be lowercase snake_case (example: `league`, `team`, `player`).
 - For each axis, training CLI must support `--no-<axis>-embeddings`.
 - Example future axis:
@@ -40,16 +45,10 @@ Notes:
 |---|---|---|
 | `DRAFT_FREQUENCY_BIAS_VALUES` | `off` | Include draft-frequency bias axis (`off/on`). |
 | `ROLE_DISTRIBUTION_BIAS_VALUES` | `off` | Include role-distribution bias axis (`off/on`). |
-| `DRAFT_FREQUENCY_TIME_AWARE_VALUES` | `off` | Explicitly enable time-aware draft-frequency priors (`off/on`), only when draft-frequency bias is `on`. |
 | `DRAFT_FREQUENCY_BIAS_DIR` | `data/weights/champion-priors` | Draft-frequency bias artifact directory. |
 | `DRAFT_FREQUENCY_BIAS_STRENGTH_VALUES` | `1.0` | Comma-separated draft-frequency bias strengths. |
-| `DRAFT_FREQUENCY_BIAS_TIME_BUCKET_VALUES` | `2` | Comma-separated time-bucket values used when `DRAFT_FREQUENCY_TIME_AWARE_VALUES=on` (must be integers `>1`). |
 | `ROLE_DISTRIBUTION_BIAS_DIR` | `data/weights/role-priors` | Role-distribution bias artifact directory. |
 | `ROLE_DISTRIBUTION_BIAS_STRENGTH_VALUES` | `1.0` | Comma-separated role-distribution bias strengths. |
-
-Notes:
-- `DRAFT_FREQUENCY_TIME_AWARE_VALUES=off` forces patch-only draft-frequency priors (`--champion-priors-time-buckets 1`).
-- If `DRAFT_FREQUENCY_TIME_AWARE_VALUES` includes `on`, `DRAFT_FREQUENCY_BIAS_VALUES` must also include `on`.
 
 Naming note:
 - Matrix runner uses intent-first names (`draft-frequency bias`, `role-distribution bias`).
@@ -58,27 +57,26 @@ Naming note:
 ### Common matrix commands
 
 ```bash
-# 1) Default 3-run embedding ablation (legacy behavior)
+# 1) Default baseline run (League on, Team off, Eligibility on, Weights off)
 ./scripts/run_training_feature_matrix.sh
 
 # 2) Full 2x2 embedding matrix (includes all-on baseline)
+LEAGUE_EMBEDDINGS_VALUES=off,on TEAM_EMBEDDINGS_VALUES=off,on \
 INCLUDE_ALL_EMBEDDINGS_BASELINE=1 ./scripts/run_training_feature_matrix.sh
 
 # 3) Include bias on/off axes
+LEAGUE_EMBEDDINGS_VALUES=off,on TEAM_EMBEDDINGS_VALUES=off,on \
 DRAFT_FREQUENCY_BIAS_VALUES=off,on ROLE_DISTRIBUTION_BIAS_VALUES=off,on \
   ./scripts/run_training_feature_matrix.sh
 
 # 4) Bias strength sweep (both bias axes enabled)
+LEAGUE_EMBEDDINGS_VALUES=off,on TEAM_EMBEDDINGS_VALUES=off,on \
 DRAFT_FREQUENCY_BIAS_VALUES=on ROLE_DISTRIBUTION_BIAS_VALUES=on \
 DRAFT_FREQUENCY_BIAS_STRENGTH_VALUES=0.5,1.0 ROLE_DISTRIBUTION_BIAS_STRENGTH_VALUES=0.5,1.0 \
   ./scripts/run_training_feature_matrix.sh
 
-# 5) Time-aware draft-frequency sweep (patch split buckets)
-DRAFT_FREQUENCY_BIAS_VALUES=on DRAFT_FREQUENCY_TIME_AWARE_VALUES=off,on \
-DRAFT_FREQUENCY_BIAS_TIME_BUCKET_VALUES=2,3 \
-  ./scripts/run_training_feature_matrix.sh
-
-# 6) Dry-run the resolved grid without training
+# 5) Dry-run the resolved grid without training
+LEAGUE_EMBEDDINGS_VALUES=off,on TEAM_EMBEDDINGS_VALUES=off,on \
 DRY_RUN=1 DRAFT_FREQUENCY_BIAS_VALUES=off,on ROLE_DISTRIBUTION_BIAS_VALUES=off,on \
   ./scripts/run_training_feature_matrix.sh
 ```
@@ -95,7 +93,6 @@ DRY_RUN=1 DRAFT_FREQUENCY_BIAS_VALUES=off,on ROLE_DISTRIBUTION_BIAS_VALUES=off,o
 
 ### Priors behavior
 - `--champion-priors-strength`
-- `--champion-priors-time-buckets`
 - `--role-priors-strength`
 
 ### Embedding toggles

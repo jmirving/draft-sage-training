@@ -4,24 +4,13 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PY_BIN="${PY_BIN:-$ROOT_DIR/.venv/bin/python}"
 
-INPUT_DIR="${INPUT_DIR:-}"
-if [[ -z "$INPUT_DIR" ]]; then
-  for candidate in \
-    "$ROOT_DIR/data/prodata" \
-    "$ROOT_DIR/../.tmp/prodata-2025-clean" \
-    "$ROOT_DIR/../.tmp/prodata-2025" \
-    "$ROOT_DIR/../.tmp/training-real/prodata-processed" \
-    "$ROOT_DIR/../draft-sage/data/processed"
-  do
-    if [[ -d "$candidate" ]]; then
-      INPUT_DIR="$candidate"
-      break
-    fi
-  done
-fi
-
-if [[ -z "$INPUT_DIR" ]]; then
-  echo "No input dir found. Set INPUT_DIR to a processed prodata directory." >&2
+DEFAULT_INPUT_DIR="$ROOT_DIR/../.tmp/prodata-2025-plus-2026-01-clean"
+DEFAULT_DATASET_LABEL="Clean 2025 + Jan 2026"
+INPUT_DIR="${INPUT_DIR:-$DEFAULT_INPUT_DIR}"
+if [[ ! -d "$INPUT_DIR" ]]; then
+  echo "Input dir not found: $INPUT_DIR" >&2
+  echo "Default training dataset must be clean 2025 + Jan 2026." >&2
+  echo "Set INPUT_DIR explicitly only when intentionally overriding baseline data scope." >&2
   exit 1
 fi
 
@@ -47,11 +36,28 @@ fi
 
 EPOCHS="${EPOCHS:-20}"
 SEED="${SEED:-42}"
-DATASET_LABEL="${DATASET_LABEL:-Clean 2025}"
+DATASET_LABEL="${DATASET_LABEL:-$DEFAULT_DATASET_LABEL}"
 CATEGORY="${CATEGORY:-embedding-matrix}"
 BASE_DIR="${BASE_DIR:-$ROOT_DIR/../.tmp/embedding-matrix-$(date -u +%Y%m%d_%H%M%S)-ep${EPOCHS}}"
 MAX_PARALLEL="${MAX_PARALLEL:-3}"
 DRY_RUN="${DRY_RUN:-0}"
+CHAMPION_ELIGIBILITY_PATH="${CHAMPION_ELIGIBILITY_PATH:-}"
+ALLOW_DATASET_OVERRIDE="${ALLOW_DATASET_OVERRIDE:-0}"
+
+if [[ "$INPUT_DIR" != "$DEFAULT_INPUT_DIR" && "$ALLOW_DATASET_OVERRIDE" != "1" ]]; then
+  echo "Non-default INPUT_DIR requires ALLOW_DATASET_OVERRIDE=1." >&2
+  echo "INPUT_DIR=$INPUT_DIR" >&2
+  echo "Default INPUT_DIR=$DEFAULT_INPUT_DIR" >&2
+  exit 1
+fi
+
+if [[ "$INPUT_DIR" == "$DEFAULT_INPUT_DIR" && "$DATASET_LABEL" != "$DEFAULT_DATASET_LABEL" && "$ALLOW_DATASET_OVERRIDE" != "1" ]]; then
+  echo "DATASET_LABEL must match canonical default when using default dataset." >&2
+  echo "DATASET_LABEL=$DATASET_LABEL" >&2
+  echo "Expected=$DEFAULT_DATASET_LABEL" >&2
+  echo "Set ALLOW_DATASET_OVERRIDE=1 only for intentional deviations." >&2
+  exit 1
+fi
 
 # Embedding matrix axes.
 # Add new embedding axes by listing them here and defining <AXIS>_EMBEDDINGS_VALUES.
@@ -59,9 +65,9 @@ DRY_RUN="${DRY_RUN:-0}"
 EMBEDDING_AXES="${EMBEDDING_AXES:-league,team}"
 
 # Per-axis values are read from <UPPERCASE_AXIS>_EMBEDDINGS_VALUES.
-# Defaults below preserve the original 3-run ablation.
-LEAGUE_EMBEDDINGS_VALUES="${LEAGUE_EMBEDDINGS_VALUES:-off,on}"
-TEAM_EMBEDDINGS_VALUES="${TEAM_EMBEDDINGS_VALUES:-off,on}"
+# Baseline defaults are league on, team off.
+LEAGUE_EMBEDDINGS_VALUES="${LEAGUE_EMBEDDINGS_VALUES:-on}"
+TEAM_EMBEDDINGS_VALUES="${TEAM_EMBEDDINGS_VALUES:-off}"
 
 # Include the all-on embedding baseline when both bias axes are off (1=yes, 0=no).
 INCLUDE_ALL_EMBEDDINGS_BASELINE="${INCLUDE_ALL_EMBEDDINGS_BASELINE:-0}"
@@ -69,14 +75,31 @@ INCLUDE_ALL_EMBEDDINGS_BASELINE="${INCLUDE_ALL_EMBEDDINGS_BASELINE:-0}"
 # Optional bias axes (clear names).
 DRAFT_FREQUENCY_BIAS_VALUES="${DRAFT_FREQUENCY_BIAS_VALUES:-off}"
 ROLE_DISTRIBUTION_BIAS_VALUES="${ROLE_DISTRIBUTION_BIAS_VALUES:-off}"
-DRAFT_FREQUENCY_TIME_AWARE_VALUES="${DRAFT_FREQUENCY_TIME_AWARE_VALUES:-off}"
 
 DRAFT_FREQUENCY_BIAS_DIR="${DRAFT_FREQUENCY_BIAS_DIR:-$ROOT_DIR/data/weights/champion-priors}"
 DRAFT_FREQUENCY_BIAS_STRENGTH_VALUES="${DRAFT_FREQUENCY_BIAS_STRENGTH_VALUES:-1.0}"
-DRAFT_FREQUENCY_BIAS_TIME_BUCKET_VALUES="${DRAFT_FREQUENCY_BIAS_TIME_BUCKET_VALUES:-2}"
 
 ROLE_DISTRIBUTION_BIAS_DIR="${ROLE_DISTRIBUTION_BIAS_DIR:-$ROOT_DIR/data/weights/role-priors}"
 ROLE_DISTRIBUTION_BIAS_STRENGTH_VALUES="${ROLE_DISTRIBUTION_BIAS_STRENGTH_VALUES:-1.0}"
+
+DEFAULT_ELIGIBILITY_PATH="$ROOT_DIR/data/eligibility/champion-eligibility-20260213-refresh.json"
+if [[ -z "$CHAMPION_ELIGIBILITY_PATH" ]]; then
+  CHAMPION_ELIGIBILITY_PATH="$DEFAULT_ELIGIBILITY_PATH"
+fi
+if [[ "$CHAMPION_ELIGIBILITY_PATH" == "off" ]]; then
+  CHAMPION_ELIGIBILITY_PATH=""
+fi
+
+declare -a ELIGIBILITY_ARGS=()
+if [[ -n "$CHAMPION_ELIGIBILITY_PATH" ]]; then
+  if [[ ! -f "$CHAMPION_ELIGIBILITY_PATH" ]]; then
+    echo "CHAMPION_ELIGIBILITY_PATH does not exist: $CHAMPION_ELIGIBILITY_PATH" >&2
+    exit 1
+  fi
+  ELIGIBILITY_ARGS=(--champion-eligibility-path "$CHAMPION_ELIGIBILITY_PATH")
+else
+  echo "Eligibility is disabled (CHAMPION_ELIGIBILITY_PATH=off)." >&2
+fi
 
 mkdir -p "$BASE_DIR/logs"
 STATUS_FILE="$BASE_DIR/status.txt"
@@ -122,18 +145,6 @@ validate_on_off_values() {
         exit 1
         ;;
     esac
-  done
-}
-
-validate_positive_integer_values() {
-  local axis_name="$1"
-  shift
-  local value
-  for value in "$@"; do
-    if [[ ! "$value" =~ ^[0-9]+$ || "$value" -lt 1 ]]; then
-      echo "Invalid value for $axis_name: '$value' (expected integer >= 1)" >&2
-      exit 1
-    fi
   done
 }
 
@@ -217,24 +228,18 @@ done
 
 declare -a DRAFT_FREQ_BIAS_AXIS=()
 declare -a ROLE_DIST_BIAS_AXIS=()
-declare -a DRAFT_FREQ_TIME_AWARE_AXIS=()
 declare -a DRAFT_FREQ_BIAS_STRENGTHS=()
-declare -a DRAFT_FREQ_BIAS_TIME_BUCKETS=()
 declare -a ROLE_DIST_BIAS_STRENGTHS=()
 
 parse_csv "$DRAFT_FREQUENCY_BIAS_VALUES" DRAFT_FREQ_BIAS_AXIS
 parse_csv "$ROLE_DISTRIBUTION_BIAS_VALUES" ROLE_DIST_BIAS_AXIS
-parse_csv "$DRAFT_FREQUENCY_TIME_AWARE_VALUES" DRAFT_FREQ_TIME_AWARE_AXIS
 parse_csv "$DRAFT_FREQUENCY_BIAS_STRENGTH_VALUES" DRAFT_FREQ_BIAS_STRENGTHS
-parse_csv "$DRAFT_FREQUENCY_BIAS_TIME_BUCKET_VALUES" DRAFT_FREQ_BIAS_TIME_BUCKETS
 parse_csv "$ROLE_DISTRIBUTION_BIAS_STRENGTH_VALUES" ROLE_DIST_BIAS_STRENGTHS
 
 validate_on_off_values "DRAFT_FREQUENCY_BIAS_VALUES" "${DRAFT_FREQ_BIAS_AXIS[@]}"
 validate_on_off_values "ROLE_DISTRIBUTION_BIAS_VALUES" "${ROLE_DIST_BIAS_AXIS[@]}"
-validate_on_off_values "DRAFT_FREQUENCY_TIME_AWARE_VALUES" "${DRAFT_FREQ_TIME_AWARE_AXIS[@]}"
-validate_positive_integer_values "DRAFT_FREQUENCY_BIAS_TIME_BUCKET_VALUES" "${DRAFT_FREQ_BIAS_TIME_BUCKETS[@]}"
 
-if [[ "${#DRAFT_FREQ_BIAS_AXIS[@]}" -eq 0 || "${#ROLE_DIST_BIAS_AXIS[@]}" -eq 0 || "${#DRAFT_FREQ_TIME_AWARE_AXIS[@]}" -eq 0 ]]; then
+if [[ "${#DRAFT_FREQ_BIAS_AXIS[@]}" -eq 0 || "${#ROLE_DIST_BIAS_AXIS[@]}" -eq 0 ]]; then
   echo "Bias axes cannot be empty." >&2
   exit 1
 fi
@@ -259,37 +264,14 @@ if contains_on "${ROLE_DIST_BIAS_AXIS[@]}" && [[ ! -d "$ROLE_DISTRIBUTION_BIAS_D
   exit 1
 fi
 
-if [[ "${#DRAFT_FREQ_BIAS_STRENGTHS[@]}" -eq 0 || "${#DRAFT_FREQ_BIAS_TIME_BUCKETS[@]}" -eq 0 ]]; then
-  echo "Draft-frequency bias strength/time bucket lists cannot be empty." >&2
+if [[ "${#DRAFT_FREQ_BIAS_STRENGTHS[@]}" -eq 0 ]]; then
+  echo "Draft-frequency bias strength list cannot be empty." >&2
   exit 1
 fi
 
 if [[ "${#ROLE_DIST_BIAS_STRENGTHS[@]}" -eq 0 ]]; then
   echo "Role-distribution bias strength list cannot be empty." >&2
   exit 1
-fi
-
-if contains_on "${DRAFT_FREQ_TIME_AWARE_AXIS[@]}" && ! contains_on "${DRAFT_FREQ_BIAS_AXIS[@]}"; then
-  echo "DRAFT_FREQUENCY_TIME_AWARE_VALUES includes 'on' but DRAFT_FREQUENCY_BIAS_VALUES does not." >&2
-  echo "Enable draft-frequency bias (DRAFT_FREQUENCY_BIAS_VALUES=on or off,on) to use time-aware mode." >&2
-  exit 1
-fi
-
-if contains_on "${DRAFT_FREQ_TIME_AWARE_AXIS[@]}"; then
-  local_has_time_aware_bucket=0
-  for time_bucket in "${DRAFT_FREQ_BIAS_TIME_BUCKETS[@]}"; do
-    if [[ "$time_bucket" -gt 1 ]]; then
-      local_has_time_aware_bucket=1
-    fi
-    if [[ "$time_bucket" -le 1 ]]; then
-      echo "When DRAFT_FREQUENCY_TIME_AWARE_VALUES includes 'on', set DRAFT_FREQUENCY_BIAS_TIME_BUCKET_VALUES to values > 1." >&2
-      exit 1
-    fi
-  done
-  if [[ "$local_has_time_aware_bucket" -ne 1 ]]; then
-    echo "No valid time-aware buckets found. Set DRAFT_FREQUENCY_BIAS_TIME_BUCKET_VALUES to integers > 1." >&2
-    exit 1
-  fi
 fi
 
 declare -a ACTIVE_PIDS=()
@@ -321,6 +303,7 @@ run_one() {
       --description "Feature matrix ablation: ${name//_/ }" \
       --input-dir "$INPUT_DIR" \
       --champion-mapping-path "$CHAMPION_MAPPING_PATH" \
+      "${ELIGIBILITY_ARGS[@]}" \
       --epochs "$EPOCHS" \
       --seed "$SEED" \
       --category "$CATEGORY" \
@@ -378,7 +361,6 @@ build_embedding_name() {
 run_leaf_for_current_embeddings() {
   local draft_freq_bias="$1"
   local role_dist_bias="$2"
-  local draft_freq_time_aware="$3"
 
   if [[ "$INCLUDE_ALL_EMBEDDINGS_BASELINE" != "1" && "$draft_freq_bias" == "off" && "$role_dist_bias" == "off" ]]; then
     if all_embeddings_on; then
@@ -388,13 +370,9 @@ run_leaf_for_current_embeddings() {
 
   local -a draft_freq_strength_loop=("na")
   local -a role_dist_strength_loop=("na")
-  local -a resolved_bucket_loop=("1")
 
   if [[ "$draft_freq_bias" == "on" ]]; then
     draft_freq_strength_loop=("${DRAFT_FREQ_BIAS_STRENGTHS[@]}")
-    if [[ "$draft_freq_time_aware" == "on" ]]; then
-      resolved_bucket_loop=("${DRAFT_FREQ_BIAS_TIME_BUCKETS[@]}")
-    fi
   fi
 
   if [[ "$role_dist_bias" == "on" ]]; then
@@ -402,11 +380,9 @@ run_leaf_for_current_embeddings() {
   fi
 
   local draft_freq_strength
-  local draft_freq_bucket
   local role_dist_strength
   for draft_freq_strength in "${draft_freq_strength_loop[@]}"; do
-    for draft_freq_bucket in "${resolved_bucket_loop[@]}"; do
-      for role_dist_strength in "${role_dist_strength_loop[@]}"; do
+    for role_dist_strength in "${role_dist_strength_loop[@]}"; do
         local run_name
         run_name="$(build_embedding_name)_dfbias_${draft_freq_bias}_roledist_${role_dist_bias}"
         local -a run_args=("${CURRENT_ARGS[@]}")
@@ -414,8 +390,7 @@ run_leaf_for_current_embeddings() {
         if [[ "$draft_freq_bias" == "on" ]]; then
           run_args+=(--champion-priors-dir "$DRAFT_FREQUENCY_BIAS_DIR")
           run_args+=(--champion-priors-strength "$draft_freq_strength")
-          run_args+=(--champion-priors-time-buckets "$draft_freq_bucket")
-          run_name+="_dftime_${draft_freq_time_aware}_dfstr_$(slug "$draft_freq_strength")_dfbkt_$(slug "$draft_freq_bucket")"
+          run_name+="_dfstr_$(slug "$draft_freq_strength")"
         fi
 
         if [[ "$role_dist_bias" == "on" ]]; then
@@ -428,7 +403,6 @@ run_leaf_for_current_embeddings() {
         while [[ "${#ACTIVE_PIDS[@]}" -ge "$MAX_PARALLEL" ]]; do
           wait_oldest
         done
-      done
     done
   done
 }
@@ -439,15 +413,9 @@ walk_embedding_axes() {
   if [[ "$idx" -ge "${#EMBEDDING_AXES_ARR[@]}" ]]; then
     local draft_freq_bias
     local role_dist_bias
-    local draft_freq_time_aware
     for draft_freq_bias in "${DRAFT_FREQ_BIAS_AXIS[@]}"; do
       for role_dist_bias in "${ROLE_DIST_BIAS_AXIS[@]}"; do
-        for draft_freq_time_aware in "${DRAFT_FREQ_TIME_AWARE_AXIS[@]}"; do
-          if [[ "$draft_freq_bias" == "off" && "$draft_freq_time_aware" == "on" ]]; then
-            continue
-          fi
-          run_leaf_for_current_embeddings "$draft_freq_bias" "$role_dist_bias" "$draft_freq_time_aware"
-        done
+        run_leaf_for_current_embeddings "$draft_freq_bias" "$role_dist_bias"
       done
     done
     return
@@ -479,7 +447,12 @@ log "BASE_DIR=$BASE_DIR"
 log "MAX_PARALLEL=$MAX_PARALLEL DRY_RUN=$DRY_RUN"
 log "EMBEDDING_AXES=[$EMBEDDING_AXES]"
 log "INCLUDE_ALL_EMBEDDINGS_BASELINE=$INCLUDE_ALL_EMBEDDINGS_BASELINE"
-log "AXES ${AXES_LOG_PARTS[*]} draft_frequency_bias=[$DRAFT_FREQUENCY_BIAS_VALUES] role_distribution_bias=[$ROLE_DISTRIBUTION_BIAS_VALUES] draft_frequency_time_aware=[$DRAFT_FREQUENCY_TIME_AWARE_VALUES]"
+if [[ -n "$CHAMPION_ELIGIBILITY_PATH" ]]; then
+  log "CHAMPION_ELIGIBILITY_PATH=$CHAMPION_ELIGIBILITY_PATH"
+else
+  log "CHAMPION_ELIGIBILITY_PATH=off"
+fi
+log "AXES ${AXES_LOG_PARTS[*]} draft_frequency_bias=[$DRAFT_FREQUENCY_BIAS_VALUES] role_distribution_bias=[$ROLE_DISTRIBUTION_BIAS_VALUES]"
 
 walk_embedding_axes 0
 
