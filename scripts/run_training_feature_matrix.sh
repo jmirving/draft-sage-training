@@ -69,10 +69,11 @@ INCLUDE_ALL_EMBEDDINGS_BASELINE="${INCLUDE_ALL_EMBEDDINGS_BASELINE:-0}"
 # Optional bias axes (clear names).
 DRAFT_FREQUENCY_BIAS_VALUES="${DRAFT_FREQUENCY_BIAS_VALUES:-off}"
 ROLE_DISTRIBUTION_BIAS_VALUES="${ROLE_DISTRIBUTION_BIAS_VALUES:-off}"
+DRAFT_FREQUENCY_TIME_AWARE_VALUES="${DRAFT_FREQUENCY_TIME_AWARE_VALUES:-off}"
 
 DRAFT_FREQUENCY_BIAS_DIR="${DRAFT_FREQUENCY_BIAS_DIR:-$ROOT_DIR/data/weights/champion-priors}"
 DRAFT_FREQUENCY_BIAS_STRENGTH_VALUES="${DRAFT_FREQUENCY_BIAS_STRENGTH_VALUES:-1.0}"
-DRAFT_FREQUENCY_BIAS_TIME_BUCKET_VALUES="${DRAFT_FREQUENCY_BIAS_TIME_BUCKET_VALUES:-1}"
+DRAFT_FREQUENCY_BIAS_TIME_BUCKET_VALUES="${DRAFT_FREQUENCY_BIAS_TIME_BUCKET_VALUES:-2}"
 
 ROLE_DISTRIBUTION_BIAS_DIR="${ROLE_DISTRIBUTION_BIAS_DIR:-$ROOT_DIR/data/weights/role-priors}"
 ROLE_DISTRIBUTION_BIAS_STRENGTH_VALUES="${ROLE_DISTRIBUTION_BIAS_STRENGTH_VALUES:-1.0}"
@@ -121,6 +122,18 @@ validate_on_off_values() {
         exit 1
         ;;
     esac
+  done
+}
+
+validate_positive_integer_values() {
+  local axis_name="$1"
+  shift
+  local value
+  for value in "$@"; do
+    if [[ ! "$value" =~ ^[0-9]+$ || "$value" -lt 1 ]]; then
+      echo "Invalid value for $axis_name: '$value' (expected integer >= 1)" >&2
+      exit 1
+    fi
   done
 }
 
@@ -204,20 +217,24 @@ done
 
 declare -a DRAFT_FREQ_BIAS_AXIS=()
 declare -a ROLE_DIST_BIAS_AXIS=()
+declare -a DRAFT_FREQ_TIME_AWARE_AXIS=()
 declare -a DRAFT_FREQ_BIAS_STRENGTHS=()
 declare -a DRAFT_FREQ_BIAS_TIME_BUCKETS=()
 declare -a ROLE_DIST_BIAS_STRENGTHS=()
 
 parse_csv "$DRAFT_FREQUENCY_BIAS_VALUES" DRAFT_FREQ_BIAS_AXIS
 parse_csv "$ROLE_DISTRIBUTION_BIAS_VALUES" ROLE_DIST_BIAS_AXIS
+parse_csv "$DRAFT_FREQUENCY_TIME_AWARE_VALUES" DRAFT_FREQ_TIME_AWARE_AXIS
 parse_csv "$DRAFT_FREQUENCY_BIAS_STRENGTH_VALUES" DRAFT_FREQ_BIAS_STRENGTHS
 parse_csv "$DRAFT_FREQUENCY_BIAS_TIME_BUCKET_VALUES" DRAFT_FREQ_BIAS_TIME_BUCKETS
 parse_csv "$ROLE_DISTRIBUTION_BIAS_STRENGTH_VALUES" ROLE_DIST_BIAS_STRENGTHS
 
 validate_on_off_values "DRAFT_FREQUENCY_BIAS_VALUES" "${DRAFT_FREQ_BIAS_AXIS[@]}"
 validate_on_off_values "ROLE_DISTRIBUTION_BIAS_VALUES" "${ROLE_DIST_BIAS_AXIS[@]}"
+validate_on_off_values "DRAFT_FREQUENCY_TIME_AWARE_VALUES" "${DRAFT_FREQ_TIME_AWARE_AXIS[@]}"
+validate_positive_integer_values "DRAFT_FREQUENCY_BIAS_TIME_BUCKET_VALUES" "${DRAFT_FREQ_BIAS_TIME_BUCKETS[@]}"
 
-if [[ "${#DRAFT_FREQ_BIAS_AXIS[@]}" -eq 0 || "${#ROLE_DIST_BIAS_AXIS[@]}" -eq 0 ]]; then
+if [[ "${#DRAFT_FREQ_BIAS_AXIS[@]}" -eq 0 || "${#ROLE_DIST_BIAS_AXIS[@]}" -eq 0 || "${#DRAFT_FREQ_TIME_AWARE_AXIS[@]}" -eq 0 ]]; then
   echo "Bias axes cannot be empty." >&2
   exit 1
 fi
@@ -250,6 +267,29 @@ fi
 if [[ "${#ROLE_DIST_BIAS_STRENGTHS[@]}" -eq 0 ]]; then
   echo "Role-distribution bias strength list cannot be empty." >&2
   exit 1
+fi
+
+if contains_on "${DRAFT_FREQ_TIME_AWARE_AXIS[@]}" && ! contains_on "${DRAFT_FREQ_BIAS_AXIS[@]}"; then
+  echo "DRAFT_FREQUENCY_TIME_AWARE_VALUES includes 'on' but DRAFT_FREQUENCY_BIAS_VALUES does not." >&2
+  echo "Enable draft-frequency bias (DRAFT_FREQUENCY_BIAS_VALUES=on or off,on) to use time-aware mode." >&2
+  exit 1
+fi
+
+if contains_on "${DRAFT_FREQ_TIME_AWARE_AXIS[@]}"; then
+  local_has_time_aware_bucket=0
+  for time_bucket in "${DRAFT_FREQ_BIAS_TIME_BUCKETS[@]}"; do
+    if [[ "$time_bucket" -gt 1 ]]; then
+      local_has_time_aware_bucket=1
+    fi
+    if [[ "$time_bucket" -le 1 ]]; then
+      echo "When DRAFT_FREQUENCY_TIME_AWARE_VALUES includes 'on', set DRAFT_FREQUENCY_BIAS_TIME_BUCKET_VALUES to values > 1." >&2
+      exit 1
+    fi
+  done
+  if [[ "$local_has_time_aware_bucket" -ne 1 ]]; then
+    echo "No valid time-aware buckets found. Set DRAFT_FREQUENCY_BIAS_TIME_BUCKET_VALUES to integers > 1." >&2
+    exit 1
+  fi
 fi
 
 declare -a ACTIVE_PIDS=()
@@ -338,6 +378,7 @@ build_embedding_name() {
 run_leaf_for_current_embeddings() {
   local draft_freq_bias="$1"
   local role_dist_bias="$2"
+  local draft_freq_time_aware="$3"
 
   if [[ "$INCLUDE_ALL_EMBEDDINGS_BASELINE" != "1" && "$draft_freq_bias" == "off" && "$role_dist_bias" == "off" ]]; then
     if all_embeddings_on; then
@@ -346,12 +387,14 @@ run_leaf_for_current_embeddings() {
   fi
 
   local -a draft_freq_strength_loop=("na")
-  local -a draft_freq_bucket_loop=("na")
   local -a role_dist_strength_loop=("na")
+  local -a resolved_bucket_loop=("1")
 
   if [[ "$draft_freq_bias" == "on" ]]; then
     draft_freq_strength_loop=("${DRAFT_FREQ_BIAS_STRENGTHS[@]}")
-    draft_freq_bucket_loop=("${DRAFT_FREQ_BIAS_TIME_BUCKETS[@]}")
+    if [[ "$draft_freq_time_aware" == "on" ]]; then
+      resolved_bucket_loop=("${DRAFT_FREQ_BIAS_TIME_BUCKETS[@]}")
+    fi
   fi
 
   if [[ "$role_dist_bias" == "on" ]]; then
@@ -362,7 +405,7 @@ run_leaf_for_current_embeddings() {
   local draft_freq_bucket
   local role_dist_strength
   for draft_freq_strength in "${draft_freq_strength_loop[@]}"; do
-    for draft_freq_bucket in "${draft_freq_bucket_loop[@]}"; do
+    for draft_freq_bucket in "${resolved_bucket_loop[@]}"; do
       for role_dist_strength in "${role_dist_strength_loop[@]}"; do
         local run_name
         run_name="$(build_embedding_name)_dfbias_${draft_freq_bias}_roledist_${role_dist_bias}"
@@ -372,7 +415,7 @@ run_leaf_for_current_embeddings() {
           run_args+=(--champion-priors-dir "$DRAFT_FREQUENCY_BIAS_DIR")
           run_args+=(--champion-priors-strength "$draft_freq_strength")
           run_args+=(--champion-priors-time-buckets "$draft_freq_bucket")
-          run_name+="_dfstr_$(slug "$draft_freq_strength")_dfbkt_$(slug "$draft_freq_bucket")"
+          run_name+="_dftime_${draft_freq_time_aware}_dfstr_$(slug "$draft_freq_strength")_dfbkt_$(slug "$draft_freq_bucket")"
         fi
 
         if [[ "$role_dist_bias" == "on" ]]; then
@@ -396,9 +439,15 @@ walk_embedding_axes() {
   if [[ "$idx" -ge "${#EMBEDDING_AXES_ARR[@]}" ]]; then
     local draft_freq_bias
     local role_dist_bias
+    local draft_freq_time_aware
     for draft_freq_bias in "${DRAFT_FREQ_BIAS_AXIS[@]}"; do
       for role_dist_bias in "${ROLE_DIST_BIAS_AXIS[@]}"; do
-        run_leaf_for_current_embeddings "$draft_freq_bias" "$role_dist_bias"
+        for draft_freq_time_aware in "${DRAFT_FREQ_TIME_AWARE_AXIS[@]}"; do
+          if [[ "$draft_freq_bias" == "off" && "$draft_freq_time_aware" == "on" ]]; then
+            continue
+          fi
+          run_leaf_for_current_embeddings "$draft_freq_bias" "$role_dist_bias" "$draft_freq_time_aware"
+        done
       done
     done
     return
@@ -430,7 +479,7 @@ log "BASE_DIR=$BASE_DIR"
 log "MAX_PARALLEL=$MAX_PARALLEL DRY_RUN=$DRY_RUN"
 log "EMBEDDING_AXES=[$EMBEDDING_AXES]"
 log "INCLUDE_ALL_EMBEDDINGS_BASELINE=$INCLUDE_ALL_EMBEDDINGS_BASELINE"
-log "AXES ${AXES_LOG_PARTS[*]} draft_frequency_bias=[$DRAFT_FREQUENCY_BIAS_VALUES] role_distribution_bias=[$ROLE_DISTRIBUTION_BIAS_VALUES]"
+log "AXES ${AXES_LOG_PARTS[*]} draft_frequency_bias=[$DRAFT_FREQUENCY_BIAS_VALUES] role_distribution_bias=[$ROLE_DISTRIBUTION_BIAS_VALUES] draft_frequency_time_aware=[$DRAFT_FREQUENCY_TIME_AWARE_VALUES]"
 
 walk_embedding_axes 0
 

@@ -40,11 +40,16 @@ Notes:
 |---|---|---|
 | `DRAFT_FREQUENCY_BIAS_VALUES` | `off` | Include draft-frequency bias axis (`off/on`). |
 | `ROLE_DISTRIBUTION_BIAS_VALUES` | `off` | Include role-distribution bias axis (`off/on`). |
+| `DRAFT_FREQUENCY_TIME_AWARE_VALUES` | `off` | Explicitly enable time-aware draft-frequency priors (`off/on`), only when draft-frequency bias is `on`. |
 | `DRAFT_FREQUENCY_BIAS_DIR` | `data/weights/champion-priors` | Draft-frequency bias artifact directory. |
 | `DRAFT_FREQUENCY_BIAS_STRENGTH_VALUES` | `1.0` | Comma-separated draft-frequency bias strengths. |
-| `DRAFT_FREQUENCY_BIAS_TIME_BUCKET_VALUES` | `1` | Comma-separated draft-frequency bias time-bucket values. |
+| `DRAFT_FREQUENCY_BIAS_TIME_BUCKET_VALUES` | `2` | Comma-separated time-bucket values used when `DRAFT_FREQUENCY_TIME_AWARE_VALUES=on` (must be integers `>1`). |
 | `ROLE_DISTRIBUTION_BIAS_DIR` | `data/weights/role-priors` | Role-distribution bias artifact directory. |
 | `ROLE_DISTRIBUTION_BIAS_STRENGTH_VALUES` | `1.0` | Comma-separated role-distribution bias strengths. |
+
+Notes:
+- `DRAFT_FREQUENCY_TIME_AWARE_VALUES=off` forces patch-only draft-frequency priors (`--champion-priors-time-buckets 1`).
+- If `DRAFT_FREQUENCY_TIME_AWARE_VALUES` includes `on`, `DRAFT_FREQUENCY_BIAS_VALUES` must also include `on`.
 
 Naming note:
 - Matrix runner uses intent-first names (`draft-frequency bias`, `role-distribution bias`).
@@ -68,7 +73,12 @@ DRAFT_FREQUENCY_BIAS_VALUES=on ROLE_DISTRIBUTION_BIAS_VALUES=on \
 DRAFT_FREQUENCY_BIAS_STRENGTH_VALUES=0.5,1.0 ROLE_DISTRIBUTION_BIAS_STRENGTH_VALUES=0.5,1.0 \
   ./scripts/run_training_feature_matrix.sh
 
-# 5) Dry-run the resolved grid without training
+# 5) Time-aware draft-frequency sweep (patch split buckets)
+DRAFT_FREQUENCY_BIAS_VALUES=on DRAFT_FREQUENCY_TIME_AWARE_VALUES=off,on \
+DRAFT_FREQUENCY_BIAS_TIME_BUCKET_VALUES=2,3 \
+  ./scripts/run_training_feature_matrix.sh
+
+# 6) Dry-run the resolved grid without training
 DRY_RUN=1 DRAFT_FREQUENCY_BIAS_VALUES=off,on ROLE_DISTRIBUTION_BIAS_VALUES=off,on \
   ./scripts/run_training_feature_matrix.sh
 ```
