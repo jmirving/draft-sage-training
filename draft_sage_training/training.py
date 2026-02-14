@@ -216,6 +216,116 @@ def build_split_groups(dataset: DraftDataset, strategy: str) -> Optional[list[st
     return groups
 
 
+def _format_sample_date(value: object) -> str:
+    if value is None:
+        return "unknown"
+    try:
+        timestamp_ns = int(value)
+        return datetime.fromtimestamp(timestamp_ns / 1_000_000_000, tz=timezone.utc).strftime(
+            "%Y-%m-%d"
+        )
+    except (TypeError, ValueError, OverflowError, OSError):
+        return str(value)
+
+
+def validate_output_masks(
+    dataset: DraftDataset,
+    *,
+    train_indices: Sequence[int],
+    val_indices: Sequence[int],
+    test_indices: Sequence[int],
+    example_limit: int = 3,
+) -> None:
+    split_entries = [
+        ("train", train_indices),
+        ("val", val_indices),
+        ("test", test_indices),
+    ]
+    split_summaries: list[str] = []
+    example_lines: list[str] = []
+
+    for split_name, indices in split_entries:
+        target_masked = 0
+        fully_masked = 0
+        split_examples = 0
+
+        for sample_idx in indices:
+            row = dataset.samples[int(sample_idx)]
+            output_mask = dataset.get_output_mask(
+                row["already_picked_or_banned"],
+                league_key=row.get("league_key"),
+                game_date_value=row.get("game_date_value"),
+            )
+            target_index = row["target"] - 1 if row["target"] > 0 else 0
+            is_target_masked = bool(
+                target_index < 0
+                or target_index >= len(output_mask)
+                or output_mask[target_index] <= 0
+            )
+            is_fully_masked = bool(np.count_nonzero(output_mask) == 0)
+
+            if is_target_masked:
+                target_masked += 1
+            if is_fully_masked:
+                fully_masked += 1
+
+            if not is_target_masked and not is_fully_masked:
+                continue
+
+            if split_examples >= example_limit:
+                continue
+            split_examples += 1
+
+            target_label = (
+                dataset.champion_names[target_index + 1]
+                if 0 <= target_index < len(dataset.champion_names) - 1
+                else f"target_index={target_index}"
+            )
+            reason = []
+            if is_target_masked:
+                reason.append("target_masked")
+            if is_fully_masked:
+                reason.append("all_candidates_masked")
+            league_key = row.get("league_key") or "unknown"
+            game_date_value = row.get("game_date_value")
+            game_date_text = _format_sample_date(game_date_value)
+            extra = ""
+            eligibility = dataset.champion_eligibility_by_league.get(league_key)
+            if (
+                eligibility is not None
+                and game_date_value is not None
+                and 0 <= target_index < len(eligibility)
+                and int(game_date_value) < int(eligibility[target_index])
+            ):
+                eligibility_date = _format_sample_date(int(eligibility[target_index]))
+                extra = f" eligibility_date={eligibility_date}"
+            example_lines.append(
+                "  - "
+                f"{split_name} sample={sample_idx} league={league_key} date={game_date_text} "
+                f"target={target_label} reason={'+'.join(reason)}{extra}"
+            )
+
+        if target_masked or fully_masked:
+            split_summaries.append(
+                f"{split_name}: target_masked={target_masked}/{len(indices)} "
+                f"all_candidates_masked={fully_masked}/{len(indices)}"
+            )
+
+    if not split_summaries:
+        return
+
+    summary_text = "\n".join(split_summaries)
+    examples_text = "\n".join(example_lines)
+    raise ValueError(
+        "Invalid output masks detected before training.\n"
+        f"{summary_text}\n"
+        "Examples:\n"
+        f"{examples_text}\n"
+        "This usually means champion eligibility data is stale/misaligned with the input dataset. "
+        "Regenerate eligibility and retry."
+    )
+
+
 def run_id() -> str:
     return time.strftime("%Y%m%d_%H%M%S", time.gmtime())
 
@@ -416,6 +526,17 @@ def train(config: TrainingConfig) -> int:
         seed=config.seed,
         groups=groups,
     )
+    try:
+        validate_output_masks(
+            dataset,
+            train_indices=train_indices,
+            val_indices=val_indices,
+            test_indices=test_indices,
+        )
+    except ValueError as exc:
+        logging.error(str(exc))
+        return 1
+
     train_dataset = Subset(dataset, train_indices)
     val_dataset = Subset(dataset, val_indices)
     test_dataset = Subset(dataset, test_indices)
