@@ -180,6 +180,11 @@ def copy_file(source: Path | None, dest: Path, dry_run: bool) -> bool:
     if not source.exists():
         logging.warning("Missing source file: %s", source)
         return False
+    try:
+        if source.resolve() == dest.resolve():
+            return True
+    except OSError:
+        pass
     if dry_run:
         logging.info("Would copy %s -> %s", source, dest)
         return True
