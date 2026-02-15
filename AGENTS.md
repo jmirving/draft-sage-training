@@ -20,6 +20,7 @@ bd_safe close <id> --reason "<text>"      # Complete work
 - If a code/config change requires experiment-log column changes or test-matrix changes, explicitly surface that in chat and update the CSV/header/matrix plan in the same session.
 - Do not attempt to run training scripts in sandbox; assume sandbox execution can fail.
 - Always provide full copy/paste script commands for running tests, with publish commands included.
+- Never overwrite hosted training data/index unless explicitly instructed. Default publish mode is additive merge (include current hosted index plus new indexes).
 
 ## Landing the Plane (Session Completion)
 

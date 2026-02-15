@@ -222,6 +222,7 @@ Notes:
 - Strips local filesystem paths from dataset metadata.
 - Prunes inspection bundles to the newest 10 runs by default.
 - Writes a single combined `experiment-index.json` for the UI.
+- Do not overwrite hosted index/data unless explicitly requested. Default publish workflow should merge the current hosted index with new indexes (`--index <hosted_index> --index <new_index>...`).
 
 ### End-to-end publish workflow (automatic)
 To publish at the start and end of training (commit + push to the data repo),
