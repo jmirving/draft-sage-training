@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 import logging
 import math
+import os
+import re
 import subprocess
 import sys
 import time
@@ -22,6 +24,8 @@ from draft_sage_training.dataset import DraftDataset
 from draft_sage_training.inspection import build_inspection_bundle
 from draft_sage_training.model import DraftMLP
 from draft_sage_training.utils.draft_order import DRAFT_ORDER
+
+RUN_ID_TIMESTAMP_PATTERN = re.compile(r"^(\d{8}_\d{6})")
 
 
 def set_seed(seed: int) -> None:
@@ -327,7 +331,9 @@ def validate_output_masks(
 
 
 def run_id() -> str:
-    return time.strftime("%Y%m%d_%H%M%S", time.gmtime())
+    now = datetime.now(timezone.utc)
+    # Include sub-second precision + pid to prevent collisions across concurrent runs.
+    return f"{now.strftime('%Y%m%d_%H%M%S_%f')}_{os.getpid()}"
 
 
 def write_json(path: Path, payload: dict) -> None:
@@ -337,8 +343,11 @@ def write_json(path: Path, payload: dict) -> None:
 
 
 def parse_run_id_timestamp(run_identifier: str) -> str | None:
+    match = RUN_ID_TIMESTAMP_PATTERN.match(run_identifier)
+    if not match:
+        return None
     try:
-        parsed = datetime.strptime(run_identifier, "%Y%m%d_%H%M%S")
+        parsed = datetime.strptime(match.group(1), "%Y%m%d_%H%M%S")
         return parsed.strftime("%Y-%m-%dT%H:%M:%SZ")
     except ValueError:
         return None

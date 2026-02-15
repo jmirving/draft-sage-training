@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import re
 import shutil
 import subprocess
 from dataclasses import dataclass
@@ -21,7 +22,18 @@ class RunBundle:
     run_entry: dict
     summary_path: Path
     summary: dict
+    config: dict | None
     timestamp: float
+
+
+@dataclass
+class PublishedRun:
+    run_id: str
+    source_run_id: str
+    bundle: RunBundle
+
+
+RUN_ID_TIMESTAMP_PATTERN = re.compile(r"^(\d{8}_\d{6})")
 
 
 def default_data_dir() -> Path:
@@ -119,8 +131,11 @@ def parse_timestamp(value: str | None) -> float | None:
 
 
 def parse_run_id_timestamp(run_id: str) -> float | None:
+    match = RUN_ID_TIMESTAMP_PATTERN.match(run_id)
+    if not match:
+        return None
     try:
-        parsed = datetime.strptime(run_id, "%Y%m%d_%H%M%S")
+        parsed = datetime.strptime(match.group(1), "%Y%m%d_%H%M%S")
         return parsed.replace(tzinfo=timezone.utc).timestamp()
     except ValueError:
         return None
@@ -193,10 +208,98 @@ def copy_file(source: Path | None, dest: Path, dry_run: bool) -> bool:
     return True
 
 
-def select_inspection_runs(runs: list[RunBundle], keep: int) -> set[str]:
+def load_optional_json(path: Path | None) -> dict | None:
+    if path is None:
+        return None
+    if not path.exists():
+        return None
+    try:
+        return load_json(path)
+    except Exception as exc:  # pragma: no cover - defensive path
+        logging.warning("Unable to parse JSON file %s: %s", path, exc)
+        return None
+
+
+def run_identity(bundle: RunBundle) -> str:
+    summary = bundle.summary
+    run_entry = bundle.run_entry
+    identity = {
+        "category": summary.get("category") or run_entry.get("category"),
+        "display_name": summary.get("display_name") or run_entry.get("display_name"),
+        "description": summary.get("description") or run_entry.get("description"),
+        "dataset": sanitize_dataset(summary.get("dataset") or run_entry.get("dataset")),
+        "config": bundle.config or {},
+    }
+    return json.dumps(identity, sort_keys=True, separators=(",", ":"), default=str)
+
+
+def bundle_quality(bundle: RunBundle) -> tuple[int, int, float]:
+    status = str(bundle.summary.get("status") or bundle.run_entry.get("status") or "").lower()
+    status_rank = {"completed": 3, "failed": 2, "running": 1}.get(status, 0)
+    metrics_rank = 1 if isinstance(bundle.summary.get("metrics"), dict) else 0
+    return status_rank, metrics_rank, bundle.timestamp
+
+
+def should_replace_bundle(existing: RunBundle, candidate: RunBundle) -> bool:
+    return bundle_quality(candidate) >= bundle_quality(existing)
+
+
+def collision_run_id(base_run_id: str, taken_ids: set[str]) -> str:
+    suffix = 2
+    while True:
+        candidate = f"{base_run_id}__dup{suffix}"
+        if candidate not in taken_ids:
+            return candidate
+        suffix += 1
+
+
+def assign_publish_run_ids(runs: list[RunBundle]) -> list[PublishedRun]:
+    taken_ids: set[str] = set()
+    order: list[str] = []
+    assigned: dict[str, PublishedRun] = {}
+    base_identity_map: dict[str, dict[str, str]] = {}
+
+    for bundle in runs:
+        source_run_id = bundle.run_id
+        identity_key = run_identity(bundle)
+        identity_slots = base_identity_map.setdefault(source_run_id, {})
+        existing_publish_id = identity_slots.get(identity_key)
+        if existing_publish_id is not None:
+            existing_bundle = assigned[existing_publish_id].bundle
+            if should_replace_bundle(existing_bundle, bundle):
+                assigned[existing_publish_id] = PublishedRun(
+                    run_id=existing_publish_id,
+                    source_run_id=source_run_id,
+                    bundle=bundle,
+                )
+            continue
+
+        publish_run_id = source_run_id
+        if publish_run_id in taken_ids:
+            publish_run_id = collision_run_id(source_run_id, taken_ids)
+            logging.warning(
+                "Run ID collision detected for %s. Publishing %s as %s.",
+                source_run_id,
+                bundle.summary_path,
+                publish_run_id,
+            )
+
+        identity_slots[identity_key] = publish_run_id
+        taken_ids.add(publish_run_id)
+        order.append(publish_run_id)
+        assigned[publish_run_id] = PublishedRun(
+            run_id=publish_run_id,
+            source_run_id=source_run_id,
+            bundle=bundle,
+        )
+
+    return [assigned[run_id] for run_id in order]
+
+
+def select_inspection_runs(runs: list[PublishedRun], keep: int) -> set[str]:
     if keep <= 0:
         return set()
-    ranked = sorted(runs, key=lambda run: run.timestamp, reverse=True)
+    ranked = sorted(runs, key=lambda run: run.bundle.timestamp, reverse=True)
     return {run.run_id for run in ranked[:keep]}
 
 
@@ -284,6 +387,12 @@ def main() -> None:
             if not run_id:
                 logging.warning("Summary missing run_id: %s", summary_path)
                 continue
+            summary_paths = summary.get("paths") if isinstance(summary.get("paths"), dict) else {}
+            config_source = resolve_source_path(
+                summary_path.parent,
+                summary_paths.get("config"),
+                workspace_root,
+            )
             runs.append(
                 RunBundle(
                     run_id=str(run_id),
@@ -291,6 +400,7 @@ def main() -> None:
                     run_entry=dict(run_entry),
                     summary_path=summary_path,
                     summary=summary,
+                    config=load_optional_json(config_source),
                     timestamp=run_timestamp(summary, str(run_id)),
                 )
             )
@@ -298,11 +408,13 @@ def main() -> None:
     if not runs:
         raise ValueError("No runs discovered from provided indexes.")
 
-    inspection_keep = select_inspection_runs(runs, args.inspection_keep)
+    published_runs = assign_publish_run_ids(runs)
+    inspection_keep = select_inspection_runs(published_runs, args.inspection_keep)
 
     combined_runs: dict[str, dict] = {}
-    for bundle in runs:
-        run_id = bundle.run_id
+    for published_run in published_runs:
+        run_id = published_run.run_id
+        bundle = published_run.bundle
         run_entry = dict(bundle.run_entry)
         summary = dict(bundle.summary)
         run_dir = bundle.summary_path.parent
@@ -364,6 +476,7 @@ def main() -> None:
             summary["inspection_error"] = reason
 
         summary["paths"] = paths
+        summary["run_id"] = run_id
 
         write_json(target_run_dir / "summary.json", summary, args.dry_run)
 
