@@ -2,6 +2,8 @@ import unittest
 
 from draft_sage_training.utils.role_priors import (
     DEFAULT_ROLE_ORDER,
+    build_causal_patch_weights,
+    parse_patch_major_minor,
     validate_role_priors_payload,
 )
 
@@ -52,6 +54,32 @@ class RolePriorsValidationTests(unittest.TestCase):
         payload["weights"]["ahri"] = {"mid": 1.0}
         with self.assertRaises(ValueError):
             validate_role_priors_payload(payload, self.champions)
+
+
+class RolePriorPatchWeightingTests(unittest.TestCase):
+    def test_parse_patch_major_minor(self) -> None:
+        self.assertEqual(parse_patch_major_minor("26.01"), (26, 1))
+        self.assertEqual(parse_patch_major_minor("25.x"), (25, 0))
+        self.assertEqual(parse_patch_major_minor("26"), (26, 0))
+        self.assertIsNone(parse_patch_major_minor("not-a-patch"))
+
+    def test_causal_patch_weights_upweight_latest_major_and_recency(self) -> None:
+        patches = ["25.11", "25.12", "26.01", "26.02", "26.03"]
+        weights = build_causal_patch_weights(patches, 4)
+
+        # Same-major patches are strongly favored.
+        self.assertGreater(weights["26.01"], weights["25.12"])
+        self.assertGreater(weights["26.02"], weights["25.12"])
+        self.assertGreater(weights["26.03"], weights["25.12"])
+
+        # Within a major, newer patches get slightly more weight.
+        self.assertGreater(weights["26.03"], weights["26.02"])
+        self.assertGreater(weights["26.02"], weights["26.01"])
+
+    def test_causal_patch_weights_exclude_future_patches(self) -> None:
+        patches = ["25.12", "26.01", "26.02", "26.03"]
+        weights_for_2601 = build_causal_patch_weights(patches, 1)
+        self.assertEqual(set(weights_for_2601.keys()), {"25.12", "26.01"})
 
 
 if __name__ == "__main__":

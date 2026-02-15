@@ -24,6 +24,8 @@ from draft_sage_training.dataset import (
 from draft_sage_training.utils.champion_mapping import load_champion_mapping
 from draft_sage_training.utils.champion_sanitizer import ChampionSanitizer
 
+DEFAULT_INPUT_DIR = Path(__file__).resolve().parents[2] / ".tmp" / "prodata-2025-plus-2026-01-clean"
+
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
@@ -31,8 +33,11 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--input-dir",
-        required=True,
-        help="Processed prodata directory (or direct teams CSV folder).",
+        default=str(DEFAULT_INPUT_DIR),
+        help=(
+            "Processed prodata directory (or direct teams CSV folder). "
+            "Defaults to cleaned 2025 + Jan 2026 dataset."
+        ),
     )
     parser.add_argument(
         "--output-dir",

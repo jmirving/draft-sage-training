@@ -16,6 +16,7 @@ fi
 INPUT_DIR="${INPUT_DIR:-}"
 if [[ -z "$INPUT_DIR" ]]; then
   for candidate in \
+    "$ROOT_DIR/../.tmp/prodata-2025-plus-2026-01-clean" \
     "$ROOT_DIR/data/prodata" \
     "$ROOT_DIR/../.tmp/prodata-2025-clean" \
     "$ROOT_DIR/../.tmp/prodata-2025" \

@@ -1,9 +1,67 @@
 from __future__ import annotations
 
+import re
 from typing import Iterable
 
 
 DEFAULT_ROLE_ORDER = ["top", "jungle", "mid", "bot", "support"]
+PATCH_MAJOR_MINOR_PATTERN = re.compile(r"^\s*(\d+)(?:\.(\d+))?")
+
+
+def parse_patch_major_minor(patch_value: object) -> tuple[int, int] | None:
+    if patch_value is None:
+        return None
+    match = PATCH_MAJOR_MINOR_PATTERN.match(str(patch_value))
+    if not match:
+        return None
+    major = int(match.group(1))
+    minor_token = match.group(2)
+    minor = int(minor_token) if minor_token is not None else 0
+    return (major, minor)
+
+
+def build_causal_patch_weights(
+    patches: list[str],
+    target_index: int,
+    *,
+    latest_major_weight: float = 4.0,
+    patch_recency_decay: float = 0.9,
+    older_major_decay: float = 0.35,
+) -> dict[str, float]:
+    if target_index < 0 or target_index >= len(patches):
+        raise IndexError(f"target_index out of range for patches: {target_index}")
+    if latest_major_weight <= 0:
+        raise ValueError("latest_major_weight must be > 0.")
+    if patch_recency_decay <= 0:
+        raise ValueError("patch_recency_decay must be > 0.")
+    if older_major_decay <= 0:
+        raise ValueError("older_major_decay must be > 0.")
+
+    target_patch = patches[target_index]
+    target_parts = parse_patch_major_minor(target_patch)
+    target_major = target_parts[0] if target_parts is not None else None
+
+    weights: dict[str, float] = {}
+    for source_index in range(target_index + 1):
+        source_patch = patches[source_index]
+        source_parts = parse_patch_major_minor(source_patch)
+        source_major = source_parts[0] if source_parts is not None else None
+
+        distance = target_index - source_index
+        recency_weight = patch_recency_decay ** distance
+
+        major_weight = 1.0
+        if target_major is not None and source_major is not None:
+            if source_major == target_major:
+                major_weight = latest_major_weight
+            elif source_major < target_major:
+                major_weight = older_major_decay ** (target_major - source_major)
+            else:
+                major_weight = 0.0
+
+        weights[source_patch] = major_weight * recency_weight
+
+    return weights
 
 
 def validate_role_priors_payload(

@@ -14,7 +14,7 @@ bd_safe close <id> --reason "<text>"      # Complete work
 ```
 
 ## Training Defaults (Agent Guardrails)
-- Default experiment dataset: cleaned `2025 + Jan 2026` (`.tmp/prodata-2025-plus-2026-01-clean`).
+- Default dataset for training and dataset-driven artifact operations: cleaned `2025 + Jan 2026` (`.tmp/prodata-2025-plus-2026-01-clean`).
 - Default baseline posture unless explicitly overridden: League embeddings `on`, Team embeddings `off`, Eligibility `on`, Weights `off`.
 - Record every planned/executed test in `project-brain/daily-briefs/EXPERIMENT_TEST_LOG_YYYY-MM-DD.csv`.
 - If a code/config change requires experiment-log column changes or test-matrix changes, explicitly surface that in chat and update the CSV/header/matrix plan in the same session.

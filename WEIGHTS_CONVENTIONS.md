@@ -10,7 +10,9 @@ generated, compared, and consumed consistently.
   both picks and bans.
 - `role-priors`: Per-patch **champion role distributions** (Top/Jungle/Mid/Bot/Sup).
   These are used to bias picks toward unmet team roles and are only applied to
-  pick actions (ban actions receive a zero role bias).
+  pick actions (ban actions receive a zero role bias). Current generator behavior
+  is causal patch-weighted (same-major upweight + recency decay) while still
+  emitting one artifact file per target patch.
 
 ## Storage layout
 Per-patch files, one file per patch:
