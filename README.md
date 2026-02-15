@@ -234,6 +234,37 @@ Notes:
 - Writes a single combined `experiment-index.json` for the UI.
 - Do not overwrite hosted index/data unless explicitly requested. Default publish workflow should merge the current hosted index with new indexes (`--index <hosted_index> --index <new_index>...`).
 
+## CSV-driven run execution
+Use planned rows from `project-brain/daily-briefs/EXPERIMENT_TEST_LOG_YYYY-MM-DD.csv`
+as the source of truth for training runs:
+
+```
+python scripts/run_training_from_csv.py \
+  --csv ../project-brain/daily-briefs/EXPERIMENT_TEST_LOG_2026-02-15.csv \
+  --status planned \
+  --test-group "Weights Role Priors Corrective Sweep"
+```
+
+Execute selected rows (and backfill `run_id`/metrics into the CSV):
+
+```
+python scripts/run_training_from_csv.py \
+  --csv ../project-brain/daily-briefs/EXPERIMENT_TEST_LOG_2026-02-15.csv \
+  --status planned \
+  --run-id planned-df04-roledist-off \
+  --run-id planned-df04-roledist-005 \
+  --run-id planned-df04-roledist-010 \
+  --run-id planned-df04-roledist-015 \
+  --role-priors-dir ../.tmp/role-priors-causal-default \
+  --execute \
+  --backfill-csv \
+  --publish-after-run \
+  --publish-data-dir ../draft-sage-training-data/public/training \
+  --publish-commit \
+  --publish-push \
+  --publish-message "Publish CSV-driven corrective sweep"
+```
+
 ### End-to-end publish workflow (automatic)
 To publish at the start and end of training (commit + push to the data repo),
 run training with `--publish-data`:
@@ -255,6 +286,7 @@ python scripts/train.py \
 - `scripts/train.py`: training entrypoint (wraps `draft_sage_training.cli`).
 - `scripts/diagnostics.py`: split/mask/leakage sanity checks.
 - `scripts/run_training_feature_matrix.sh`: configurable matrix runner for embedding + prior ablations.
+- `scripts/run_training_from_csv.py`: execute selected planned experiment CSV rows.
 - `scripts/generate_champion_eligibility.py`: eligibility artifact builder.
 - `scripts/generate_champion_priors.py`: champion priors generator.
 - `scripts/generate_role_priors.py`: role priors generator.
