@@ -239,6 +239,26 @@ Use planned rows from `project-brain/daily-briefs/EXPERIMENT_TEST_LOG_YYYY-MM-DD
 as the source of truth for training runs:
 
 ```
+./scripts/run_planned_training.sh \
+  --test-group "Weights Role Priors Corrective Sweep"
+```
+
+The wrapper defaults to:
+- today’s CSV in `../project-brain/daily-briefs/`
+- `--status planned`
+
+Override CSV selection via `CSV_DATE=YYYY-MM-DD` or `CSV_PATH=/path/to/file.csv`.
+
+Example:
+
+```
+CSV_DATE=2026-02-15 ./scripts/run_planned_training.sh \
+  --test-group "Weights Role Priors Corrective Sweep"
+```
+
+Equivalent explicit command:
+
+```
 python scripts/run_training_from_csv.py \
   --csv ../project-brain/daily-briefs/EXPERIMENT_TEST_LOG_2026-02-15.csv \
   --status planned \
@@ -287,6 +307,7 @@ python scripts/train.py \
 - `scripts/diagnostics.py`: split/mask/leakage sanity checks.
 - `scripts/run_training_feature_matrix.sh`: configurable matrix runner for embedding + prior ablations.
 - `scripts/run_training_from_csv.py`: execute selected planned experiment CSV rows.
+- `scripts/run_planned_training.sh`: wrapper for CSV runner with defaults (today's CSV + planned status).
 - `scripts/generate_champion_eligibility.py`: eligibility artifact builder.
 - `scripts/generate_champion_priors.py`: champion priors generator.
 - `scripts/generate_role_priors.py`: role priors generator.
